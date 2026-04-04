@@ -10,7 +10,7 @@ func (b *Bot) handleKeepAlive(p pk.Packet) error {
 		return err
 	}
 
-	err := b.conn.WritePacket(pk.Marshal(
+	err := b.writePacket(pk.Marshal(
 		pk.VarInt(b.version.IDs.SB_KeepAlive),
 		keepAliveID,
 	))

@@ -19,7 +19,7 @@ func (b *Bot) login(addr string) error {
 }
 
 func (b *Bot) sendHandshake(addr string) error {
-	return b.conn.WritePacket(pk.Marshal(
+	return b.writePacket(pk.Marshal(
 		pk.VarInt(b.version.IDs.SB_Handshake),
 		pk.VarInt(b.version.ProtocolNumber),
 		pk.String(addr),
@@ -30,7 +30,7 @@ func (b *Bot) sendHandshake(addr string) error {
 
 func (b *Bot) sendLoginStart() error {
 	uuid := offlineUUID(b.Name)
-	return b.conn.WritePacket(pk.Marshal(
+	return b.writePacket(pk.Marshal(
 		pk.VarInt(b.version.IDs.SB_LoginStart),
 		pk.String(b.Name),
 		pk.UUID(uuid),
@@ -55,7 +55,7 @@ func (b *Bot) waitLoginSuccess() error {
 			b.conn.SetThreshold(int(threshold))
 
 		case b.version.IDs.CB_LoginSuccess:
-			if err := b.conn.WritePacket(pk.Marshal(
+			if err := b.writePacket(pk.Marshal(
 				pk.VarInt(b.version.IDs.SB_LoginAck),
 			)); err != nil {
 				return err
@@ -84,7 +84,7 @@ func (b *Bot) handleConfiguration() error {
 		switch p.ID {
 
 		case b.version.IDs.CB_KnownPacks:
-			if err := b.conn.WritePacket(pk.Marshal(
+			if err := b.writePacket(pk.Marshal(
 				pk.VarInt(b.version.IDs.SB_KnownPacks),
 				pk.VarInt(1),
 				pk.String("minecraft"),
@@ -101,7 +101,7 @@ func (b *Bot) handleConfiguration() error {
 		case b.version.IDs.CB_PluginRequest:
 			// intentionally ignored
 		case b.version.IDs.CB_FinishConfig:
-			if err := b.conn.WritePacket(pk.Marshal(
+			if err := b.writePacket(pk.Marshal(
 				pk.VarInt(b.version.IDs.SB_FinishConfig),
 			)); err != nil {
 				return err
