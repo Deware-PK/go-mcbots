@@ -1,97 +1,239 @@
-# About the Project
+# go-mcbots
 
-go-mcbots is a lightweight Minecraft bot framework written in Go. It is designed for developers who need a high-performance, low-overhead solution by stripping down a full-scale protocol library to its core essentials for bot automation.
+A lightweight Minecraft bot framework and REST API server written in Go. Run and control multiple Minecraft bots simultaneously over HTTP — launch bots, send chat, navigate to coordinates, and monitor status, all from a simple API.
 
-# Features
- - Protocol 1.21.11 Support: Optimized for the latest Minecraft versions (including 1.21.1) with updated packet structures and state handling.
- - Minimalist Architecture: A clean codebase focused purely on bot logic, significantly reducing resource consumption compared to all-purpose libraries.
- - Efficient Concurrency: Leverages Go's goroutines to manage multiple bot instances simultaneously with high stability.
- - Modular Design: Easily extendable through dedicated packages for bot actions, game handling, and protocol management.
+## Features
 
-# Upcoming Features
-I am actively planning to expand the framework's capabilities:
-- Advanced Pathfinding: Implementing sophisticated navigation and path-finding algorithms for complex world traversal.
-- Enhanced Bot Intelligence: Integrating smarter decision-making logic and autonomous behaviors to make bots more interactive.
-- Extended World Interaction: Granular APIs for interacting with blocks, containers, and entities.
+- **REST API server** — Control bots remotely via HTTP using [Gin](https://github.com/gin-gonic/gin)
+- **Multi-bot pool** — Spawn and manage multiple named bot instances concurrently
+- **Minecraft 1.21.11 support** — Implements protocol 774 with full play-state handling
+- **Bot events** — Hook into spawn, chat, system messages, health, death, and disconnect
+- **Movement control** — Walk, sprint, and navigate bots to target coordinates
+- **Graceful shutdown** — All bots cleanly disconnect on server exit
 
- # Installation
- ```
- go get github.com/Deware-PK/go-mcbots
- ```
+## Prerequisites
 
-# Quick Start
-A simple example to connect a bot to a server:
+- Go 1.21+
+- A running Minecraft Java Edition server (1.21.x, offline mode)
+
+## Setup
+
+**1. Clone the repository**
+```sh
+git clone https://github.com/deware-pk/go-mcbots.git
+cd go-mcbots
 ```
+
+**2. Copy and configure environment**
+```sh
+cp .env.example .env
+```
+
+| Variable   | Default | Description              |
+|------------|---------|--------------------------|
+| `PORT`     | `8080`  | HTTP API listening port  |
+| `LOG_INFO` | `true`  | Enable structured logging |
+
+**3. Run the API server**
+```sh
+go run ./cmd/api
+```
+
+The server starts on `http://localhost:8080` and also launches a demo bot that connects to `localhost:25565`.
+
+## API Reference
+
+All endpoints accept and return JSON.
+
+---
+
+### Launch a bot
+
+```
+POST /bots
+```
+
+**Request body**
+```json
+{
+  "id":   "bot-1",
+  "name": "GoBot",
+  "addr": "localhost:25565"
+}
+```
+
+**Response** `201 Created`
+```json
+{ "status": "launched", "id": "bot-1" }
+```
+
+---
+
+### List all bots
+
+```
+GET /bots
+```
+
+**Response** `200 OK`
+```json
+{ "bots": ["bot-1", "bot-2"], "count": 2 }
+```
+
+---
+
+### Remove a bot
+
+```
+DELETE /bots/:id
+```
+
+**Response** `200 OK`
+```json
+{ "status": "removed", "id": "bot-1" }
+```
+
+---
+
+### Send chat message
+
+```
+POST /bots/:id/chat
+```
+
+**Request body**
+```json
+{ "message": "Hello from the API!" }
+```
+
+**Response** `200 OK`
+```json
+{ "status": "sent", "id": "bot-1", "message": "Hello from the API!" }
+```
+
+---
+
+### Navigate to coordinates
+
+```
+POST /bots/:id/goto
+```
+
+**Request body**
+```json
+{ "x": 100.0, "y": 64.0, "z": -200.0, "sprint": true }
+```
+
+**Response** `200 OK`
+```json
+{
+  "status": "navigating",
+  "id": "bot-1",
+  "target": { "x": 100.0, "y": 64.0, "z": -200.0 }
+}
+```
+
+---
+
+### Stop movement
+
+```
+POST /bots/:id/stop
+```
+
+**Response** `200 OK`
+```json
+{ "status": "stopped", "id": "bot-1" }
+```
+
+---
+
+### Get bot status
+
+```
+GET /bots/:id/status
+```
+
+**Response** `200 OK`
+```json
+{
+  "id": "bot-1",
+  "name": "GoBot",
+  "connected": true,
+  "position": { "x": 100.0, "y": 64.0, "z": -200.0 },
+  "health": 20.0,
+  "food": 20.0
+}
+```
+
+---
+
+## Quick Start (Library)
+
+You can also use the bot package directly without the API server:
+
+```go
 package main
 
 import (
-	"go-mcbots/pkg/bot"
-	"go-mcbots/pkg/protocol"
-	"log"
-	"time"
+    "log"
+    "time"
+
+    "github.com/deware-pk/go-mcbots/pkg/bot"
+    "github.com/deware-pk/go-mcbots/pkg/protocol"
 )
 
 func main() {
-	ver, err := protocol.Resolve("1.21.11")
-	if err != nil {
-		log.Fatal(err)
-	}
+    ver, err := protocol.Resolve("1.21.11")
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	b := bot.New("GoBot", ver)
+    b := bot.New("GoBot", ver)
 
-	b.Events.OnSpawn = func() {
-		x, y, z := b.GetPosition()
-		log.Printf("Spawned at X=%.2f Y=%.2f Z=%.2f", x, y, z)
+    b.Events.OnSpawn = func() {
+        x, y, z := b.GetPosition()
+        log.Printf("Spawned at X=%.2f Y=%.2f Z=%.2f", x, y, z)
 
-		b.Chat("Hello from Go bot!")
-		b.Command("gamemode creative")
+        b.Chat("Hello from Go bot!")
+        b.SetControlState("forward", true)
+        b.SetControlState("sprint", true)
+        time.AfterFunc(3*time.Second, func() {
+            b.ClearControlStates()
+        })
+    }
 
-		// Walk forward for 3 seconds
-		b.SetControlState("forward", true)
-		b.SetControlState("sprint", true)
-		time.AfterFunc(3*time.Second, func() {
-			b.ClearControlStates()
-			log.Println("Stopped walking")
-			x, y, z := b.GetPosition()
-			log.Printf("Now at X=%.2f Y=%.2f Z=%.2f", x, y, z)
-		})
-	}
+    b.Events.OnChat = func(sender, message string) {
+        log.Printf("[Chat] <%s> %s", sender, message)
+    }
 
-	b.Events.OnChat = func(sender, message string) {
-		log.Printf("[Chat] <%s> %s", sender, message)
-	}
+    b.Events.OnDeath = func() {
+        log.Println("Bot died! Respawning...")
+        b.Respawn()
+    }
 
-	b.Events.OnSystemMessage = func(message string) {
-		log.Printf("[System] %s", message)
-	}
+    b.Events.OnDisconnect = func(reason string) {
+        log.Printf("Disconnected: %s", reason)
+    }
 
-	b.Events.OnHealthUpdate = func(health, food float32) {
-		log.Printf("Health: %.1f, Food: %.1f", health, food)
-	}
-
-	b.Events.OnDeath = func() {
-		log.Println("Bot died! Respawning...")
-		b.Respawn()
-	}
-
-	b.Events.OnDisconnect = func(reason string) {
-		log.Printf("Disconnected: %s", reason)
-	}
-
-	if err := b.Connect("localhost:25565"); err != nil {
-		log.Fatal(err)
-	}
+    if err := b.Connect("localhost:25565"); err != nil {
+        log.Fatal(err)
+    }
 }
-
 ```
 
-# Credits & Acknowledgements
-This project is forked and refactored from the following excellent open-source projects:
+## Upcoming Features
 
-- Tnze/go-mc - The original Minecraft protocol implementation in Go.
-- mj41/go-mc - Improved version with specific protocol stability.
+- Advanced pathfinding and world navigation
+- Block and entity interaction
+- Enhanced autonomous bot behaviors
 
-Special thanks to the original authors for their contributions to the Go-Minecraft ecosystem.
+## Credits
 
-# License
-This project is licensed under the MIT License. See the LICENSE file for details.
+Forked and refactored from:
+- [Tnze/go-mc](https://github.com/Tnze/go-mc) — Original Minecraft protocol implementation in Go
+- [mj41/go-mc](https://github.com/mj41/go-mc) — Protocol stability improvements
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
