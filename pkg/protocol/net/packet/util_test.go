@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	pk "go-mcbots/pkg/protocol/net/packet"
+	pk "github.com/deware-pk/go-mcbots/pkg/protocol/net/packet"
 )
 
 func ExampleAry_WriteTo() {

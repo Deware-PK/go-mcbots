@@ -4,7 +4,7 @@ import (
 	"errors"
 	"io"
 
-	"go-mcbots/pkg/protocol/nbt"
+	"github.com/deware-pk/go-mcbots/pkg/protocol/nbt"
 )
 
 func (v *Value) TagType() byte { return v.tag }

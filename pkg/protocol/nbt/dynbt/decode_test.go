@@ -5,7 +5,7 @@ import (
 	_ "embed"
 	"testing"
 
-	"go-mcbots/pkg/protocol/nbt"
+	"github.com/deware-pk/go-mcbots/pkg/protocol/nbt"
 )
 
 //go:embed bigTest_test.snbt

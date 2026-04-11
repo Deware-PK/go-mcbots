@@ -6,8 +6,8 @@ import (
 	"io"
 	"strconv"
 
-	"go-mcbots/pkg/protocol/nbt"
-	pk "go-mcbots/pkg/protocol/net/packet"
+	"github.com/deware-pk/go-mcbots/pkg/protocol/nbt"
+	pk "github.com/deware-pk/go-mcbots/pkg/protocol/net/packet"
 )
 
 // ReadFrom decode Message in a Text component

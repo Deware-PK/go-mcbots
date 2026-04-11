@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 
-	pk "go-mcbots/pkg/protocol/net/packet"
+	pk "github.com/deware-pk/go-mcbots/pkg/protocol/net/packet"
 )
 
 // JsonMessage is Message, unless when it is going to be Json instead of NBT

@@ -1,6 +1,6 @@
 package protocol
 
-import "go-mcbots/pkg/protocol/types"
+import "github.com/deware-pk/go-mcbots/pkg/protocol/types"
 
 // Re-export types for backward compatibility
 type State = types.State

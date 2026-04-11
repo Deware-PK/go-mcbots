@@ -9,6 +9,8 @@ type Events struct {
 	OnHealthUpdate   func(health, food float32)
 	OnPhysicsTick    func()
 	OnDisconnect     func(reason string)
+	OnGoalReached    func()
+	OnPathFailed     func(reason string)
 }
 
 func (e *Events) emit(name string, args ...any) {
@@ -44,6 +46,14 @@ func (e *Events) emit(name string, args ...any) {
 	case "disconnect":
 		if e.OnDisconnect != nil && len(args) >= 1 {
 			e.OnDisconnect(args[0].(string))
+		}
+	case "goal_reached":
+		if e.OnGoalReached != nil {
+			e.OnGoalReached()
+		}
+	case "path_failed":
+		if e.OnPathFailed != nil && len(args) >= 1 {
+			e.OnPathFailed(args[0].(string))
 		}
 	}
 }

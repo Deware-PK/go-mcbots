@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"go-mcbots/pkg/protocol/nbt"
+	"github.com/deware-pk/go-mcbots/pkg/protocol/nbt"
 )
 
 // A Field is both FieldEncoder and FieldDecoder

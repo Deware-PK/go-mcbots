@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"go-mcbots/pkg/protocol/nbt"
+	"github.com/deware-pk/go-mcbots/pkg/protocol/nbt"
 )
 
 func (v *Value) UnmarshalNBT(tagType byte, r nbt.DecoderReader) error {

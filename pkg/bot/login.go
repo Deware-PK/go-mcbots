@@ -2,7 +2,8 @@ package bot
 
 import (
 	"fmt"
-	pk "go-mcbots/pkg/protocol/net/packet"
+
+	pk "github.com/deware-pk/go-mcbots/pkg/protocol/net/packet"
 )
 
 func (b *Bot) login(addr string) error {

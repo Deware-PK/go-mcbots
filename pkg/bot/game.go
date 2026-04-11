@@ -2,10 +2,17 @@ package bot
 
 import (
 	"fmt"
-	pk "go-mcbots/pkg/protocol/net/packet"
+
+	pk "github.com/deware-pk/go-mcbots/pkg/protocol/net/packet"
 )
 
 func (b *Bot) HandleGame() error {
+	defer func() {
+		if b.onClose != nil {
+			b.onClose()
+		}
+	}()
+
 	spawned := false
 
 	for {
@@ -61,7 +68,7 @@ func (b *Bot) HandleGame() error {
 
 		case b.version.IDs.CB_ChunkData:
 			if err := b.handleChunkData(p); err != nil {
-				// non-fatal: log and continue
+				fmt.Printf("[World] Chunk parse error: %v\n", err)
 			}
 
 		case b.version.IDs.CB_UnloadChunk:

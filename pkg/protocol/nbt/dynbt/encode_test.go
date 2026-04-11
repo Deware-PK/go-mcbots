@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"go-mcbots/pkg/protocol/nbt"
+	"github.com/deware-pk/go-mcbots/pkg/protocol/nbt"
 )
 
 func TestValue_new(t *testing.T) {

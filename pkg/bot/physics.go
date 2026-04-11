@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	pk "go-mcbots/pkg/protocol/net/packet"
+	pk "github.com/deware-pk/go-mcbots/pkg/protocol/net/packet"
 )
 
 const (
@@ -97,18 +97,22 @@ func (p *Physics) SetControlState(control string, state bool) {
 	case "jump":
 		p.control.Jump = state
 	case "sprint":
-		p.control.Sprint = state
-		if state {
-			p.bot.sendPlayerCommand(3) // start sprinting
-		} else {
-			p.bot.sendPlayerCommand(4) // stop sprinting
+		if p.control.Sprint != state {
+			p.control.Sprint = state
+			if state {
+				p.bot.sendPlayerCommand(3) // start sprinting
+			} else {
+				p.bot.sendPlayerCommand(4) // stop sprinting
+			}
 		}
 	case "sneak":
-		p.control.Sneak = state
-		if state {
-			p.bot.sendPlayerCommand(0) // start sneaking
-		} else {
-			p.bot.sendPlayerCommand(1) // stop sneaking
+		if p.control.Sneak != state {
+			p.control.Sneak = state
+			if state {
+				p.bot.sendPlayerCommand(0) // start sneaking
+			} else {
+				p.bot.sendPlayerCommand(1) // stop sneaking
+			}
 		}
 	}
 }
@@ -137,8 +141,17 @@ func (p *Physics) GetControlState(control string) bool {
 
 func (p *Physics) ClearControlStates() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	wasSprinting := p.control.Sprint
+	wasSneaking := p.control.Sneak
 	p.control = ControlState{}
+	p.mu.Unlock()
+
+	if wasSprinting {
+		p.bot.sendPlayerCommand(4) // stop sprinting
+	}
+	if wasSneaking {
+		p.bot.sendPlayerCommand(1) // stop sneaking
+	}
 }
 
 func (p *Physics) tickLoop() {
@@ -160,6 +173,7 @@ func (p *Physics) tick() {
 		return
 	}
 
+	p.bot.nav.Tick()
 	p.simulatePlayer()
 	p.updatePosition()
 	p.bot.Events.emit("physics_tick")

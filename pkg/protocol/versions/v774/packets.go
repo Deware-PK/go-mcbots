@@ -1,6 +1,6 @@
 package v774
 
-import "go-mcbots/pkg/protocol/types"
+import "github.com/deware-pk/go-mcbots/pkg/protocol/types"
 
 // source: minecraft.wiki/w/Java_Edition_protocol/Packets (protocol 774, MC 1.21.11)
 var Info = types.VersionInfo{

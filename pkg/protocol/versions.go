@@ -3,7 +3,7 @@ package protocol
 import (
 	"fmt"
 
-	v774 "go-mcbots/pkg/protocol/versions/v774"
+	v774 "github.com/deware-pk/go-mcbots/pkg/protocol/versions/v774"
 )
 
 var mcVersionMap = map[string]int{

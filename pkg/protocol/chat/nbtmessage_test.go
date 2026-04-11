@@ -3,9 +3,9 @@ package chat_test
 import (
 	"testing"
 
-	"go-mcbots/pkg/protocol/chat"
-	en_us "go-mcbots/pkg/protocol/data/lang/en-us"
-	"go-mcbots/pkg/protocol/nbt"
+	"github.com/deware-pk/go-mcbots/pkg/protocol/chat"
+	en_us "github.com/deware-pk/go-mcbots/pkg/protocol/data/lang/en-us"
+	"github.com/deware-pk/go-mcbots/pkg/protocol/nbt"
 )
 
 func TestMessage_UnmarshalJSON_string(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"regexp"
 	"strings"
 
-	en_us "go-mcbots/pkg/protocol/data/lang/en-us"
+	en_us "github.com/deware-pk/go-mcbots/pkg/protocol/data/lang/en-us"
 )
 
 const (

@@ -1,6 +1,6 @@
 package net
 
-import pk "go-mcbots/pkg/protocol/net/packet"
+import pk "github.com/deware-pk/go-mcbots/pkg/protocol/net/packet"
 
 type Writer interface {
 	WritePacket(p pk.Packet) error

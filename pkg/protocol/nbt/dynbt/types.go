@@ -21,7 +21,7 @@ import (
 	"encoding/binary"
 	"math"
 
-	"go-mcbots/pkg/protocol/nbt"
+	"github.com/deware-pk/go-mcbots/pkg/protocol/nbt"
 )
 
 type Value struct {
