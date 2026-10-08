@@ -82,9 +82,11 @@ func (p *Physics) Stop() {
 	close(p.stopCh)
 }
 
+// SetControlState sets one control. Changes are sent to the server as a
+// Player Input packet; sprint changes also send a Player Command.
 func (p *Physics) SetControlState(control string, state bool) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	old := p.control
 	switch control {
 	case "forward":
 		p.control.Forward = state
@@ -97,24 +99,14 @@ func (p *Physics) SetControlState(control string, state bool) {
 	case "jump":
 		p.control.Jump = state
 	case "sprint":
-		if p.control.Sprint != state {
-			p.control.Sprint = state
-			if state {
-				p.bot.sendPlayerCommand(3) // start sprinting
-			} else {
-				p.bot.sendPlayerCommand(4) // stop sprinting
-			}
-		}
+		p.control.Sprint = state
 	case "sneak":
-		if p.control.Sneak != state {
-			p.control.Sneak = state
-			if state {
-				p.bot.sendPlayerCommand(0) // start sneaking
-			} else {
-				p.bot.sendPlayerCommand(1) // stop sneaking
-			}
-		}
+		p.control.Sneak = state
 	}
+	cur := p.control
+	p.mu.Unlock()
+
+	p.sendControlChanges(old, cur)
 }
 
 func (p *Physics) GetControlState(control string) bool {
@@ -141,16 +133,24 @@ func (p *Physics) GetControlState(control string) bool {
 
 func (p *Physics) ClearControlStates() {
 	p.mu.Lock()
-	wasSprinting := p.control.Sprint
-	wasSneaking := p.control.Sneak
+	old := p.control
 	p.control = ControlState{}
 	p.mu.Unlock()
 
-	if wasSprinting {
-		p.bot.sendPlayerCommand(4) // stop sprinting
+	p.sendControlChanges(old, ControlState{})
+}
+
+// sendControlChanges tells the server about control changes between old and cur.
+func (p *Physics) sendControlChanges(old, cur ControlState) {
+	if old.Sprint != cur.Sprint {
+		if cur.Sprint {
+			p.bot.sendPlayerCommand(playerCommandStartSprinting)
+		} else {
+			p.bot.sendPlayerCommand(playerCommandStopSprinting)
+		}
 	}
-	if wasSneaking {
-		p.bot.sendPlayerCommand(1) // stop sneaking
+	if old != cur {
+		p.bot.sendPlayerInput(cur)
 	}
 }
 
@@ -328,6 +328,54 @@ func (p *Physics) updatePosition() {
 	}
 	p.lastSentOnGround = onGround
 	p.mu.Unlock()
+}
+
+// Player Command action IDs (protocol 774; enum since 1.21.2).
+const (
+	playerCommandStopSleeping    = 0
+	playerCommandStartSprinting  = 1
+	playerCommandStopSprinting   = 2
+	playerCommandStartRidingJump = 3
+	playerCommandStopRidingJump  = 4
+	playerCommandOpenInventory   = 5
+	playerCommandStartFallFlying = 6
+)
+
+// Player Input flags (protocol 774).
+const (
+	inputForward  = 0x01
+	inputBackward = 0x02
+	inputLeft     = 0x04
+	inputRight    = 0x08
+	inputJump     = 0x10
+	inputSneak    = 0x20
+	inputSprint   = 0x40
+)
+
+func (c ControlState) inputFlags() byte {
+	var f byte
+	for _, x := range []struct {
+		on   bool
+		flag byte
+	}{
+		{c.Forward, inputForward}, {c.Back, inputBackward}, {c.Left, inputLeft},
+		{c.Right, inputRight}, {c.Jump, inputJump}, {c.Sneak, inputSneak}, {c.Sprint, inputSprint},
+	} {
+		if x.on {
+			f |= x.flag
+		}
+	}
+	return f
+}
+
+func (b *Bot) sendPlayerInput(c ControlState) error {
+	if b.conn == nil {
+		return nil
+	}
+	return b.writePacket(pk.Marshal(
+		pk.VarInt(b.version.IDs.SB_PlayerInput),
+		pk.UnsignedByte(c.inputFlags()),
+	))
 }
 
 func (b *Bot) sendPlayerCommand(actionID int32) error {
