@@ -13,10 +13,15 @@ func Test(t *testing.T) {
 	<-c
 }
 
+// server runs in its own goroutine, so it must use t.Error (not t.Fatal).
+// Closing c on exit unblocks Test if the server fails early.
 func server(t *testing.T, c chan<- int) {
+	defer close(c)
+
 	l, err := ListenRCON("localhost:25575")
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
+		return
 	}
 	defer l.Close()
 
@@ -24,12 +29,14 @@ func server(t *testing.T, c chan<- int) {
 
 	conn, err := l.Accept()
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
+		return
 	}
 
 	err = conn.AcceptLogin("RightPassword")
 	if err != nil {
-		t.Fatal("password wrong")
+		t.Error("password wrong")
+		return
 	}
 
 	cmd, err := conn.AcceptCmd()
@@ -41,7 +48,8 @@ func server(t *testing.T, c chan<- int) {
 	resp := handleCommand(cmd)
 	err = conn.RespCmd(resp)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
+		return
 	}
 
 	c <- 2 // finished
