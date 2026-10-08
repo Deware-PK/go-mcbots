@@ -1,8 +1,15 @@
 # go-mcbots
 
 A lightweight Minecraft bot library for Go.
+Spin up one bot or hundreds from a single binary — no Node.js, no heavy runtime.
 
-- Connect bots to Minecraft Java Edition servers (offline mode)
+**Use it for:**
+- **Server load testing** — simulate many players before a launch or event
+- **Plugin testing** — automate join/chat/move scenarios against your plugins
+- **Automation & experiments** — build your own headless bots in plain Go
+
+**Features**
+- Connect to Minecraft Java Edition servers (offline mode)
 - Event hooks: spawn, chat, system messages, health, death, disconnect, pathfinding
 - Movement controls, physics and A* pathfinding (`GoTo`)
 - `swarm` package to run many bots at once
@@ -74,6 +81,19 @@ Only offline-mode (`online-mode=false`) servers are supported.
 - **Easier API** — simpler, higher-level bot API
 - **Minecraft 26.1 support** — via generated protocol data instead of hand-written packet tables
 - **CI integration tests** — run bots against a real server in CI
+
+## Responsible Use
+
+go-mcbots is intended for testing, automation and learning on servers
+you own or have explicit permission to use.
+
+- Do not use it to spam, grief, or flood servers you don't control.
+- Respect each server's rules and the Minecraft EULA / Usage Guidelines.
+- Running many bots against third-party servers may be treated as a
+  denial-of-service attack.
+
+This project is provided "as is" under the MIT License. The authors are
+not responsible for any misuse or damage caused by this software.
 
 ## Credits
 
