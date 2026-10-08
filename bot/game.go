@@ -3,6 +3,8 @@ package bot
 import (
 	"fmt"
 
+	"github.com/deware-pk/go-mcbots/internal/protocol/chat"
+
 	pk "github.com/deware-pk/go-mcbots/internal/protocol/net/packet"
 )
 
@@ -69,6 +71,16 @@ func (b *Bot) HandleGame() error {
 				fmt.Printf("[World] Chunk parse error: %v\n", err)
 			}
 
+		case b.version.IDs.CB_BlockUpdate:
+			if err := b.handleBlockUpdate(p); err != nil {
+				fmt.Printf("[World] %v\n", err)
+			}
+
+		case b.version.IDs.CB_SectionBlocksUpdate:
+			if err := b.handleSectionBlocksUpdate(p); err != nil {
+				fmt.Printf("[World] %v\n", err)
+			}
+
 		case b.version.IDs.CB_UnloadChunk:
 			if err := b.handleUnloadChunk(p); err != nil {
 				// non-fatal
@@ -88,9 +100,8 @@ func (b *Bot) HandleGame() error {
 			}
 
 		case b.version.IDs.CB_Disconnect_Play:
-			var reason pk.String
-			p.Scan(&reason)
-			b.Events.emit("disconnect", string(reason))
+			reason := readDisconnectReason(p)
+			b.Events.emit("disconnect", reason)
 			return fmt.Errorf("disconnected: %s", reason)
 
 		default:
@@ -110,4 +121,14 @@ func (b *Bot) handleChunkBatchFinished(p pk.Packet) {
 		pk.VarInt(b.version.IDs.SB_ChunkBatchReceived),
 		pk.Float(20.0),
 	))
+}
+
+// readDisconnectReason decodes the NBT text component of a configuration- or
+// play-state Disconnect packet (1.20.3+).
+func readDisconnectReason(p pk.Packet) string {
+	var reason chat.Message
+	if err := p.Scan(&reason); err != nil {
+		return "(unreadable disconnect reason)"
+	}
+	return reason.ClearString()
 }
