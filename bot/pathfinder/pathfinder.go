@@ -14,6 +14,9 @@ type Pathfinder struct {
 	world    WorldView
 	follower *Follower
 	opts     Options
+	// gen is bumped by every GoTo and Stop; an A* result is only used if
+	// gen has not changed since its GoTo started.
+	gen uint64
 
 	onGoalReached func()
 	onPathFailed  func(reason string)
@@ -47,6 +50,8 @@ func (p *Pathfinder) SetOptions(opts Options) {
 // The A* computation runs in a goroutine to avoid blocking the physics loop.
 func (p *Pathfinder) GoTo(x, y, z float64, sprint bool) error {
 	p.mu.Lock()
+	p.gen++
+	gen := p.gen
 	// Stop any current navigation
 	if p.follower != nil && p.follower.IsActive() {
 		p.follower.Stop(p.bot)
@@ -98,6 +103,9 @@ func (p *Pathfinder) GoTo(x, y, z float64, sprint bool) error {
 			start, goal, world.HasChunk(start.X, start.Z), world.HasChunk(goal.X, goal.Z))
 
 		path, err := FindPath(start, goal, world, opts)
+		if !p.isCurrent(gen) {
+			return // cancelled by Stop() or superseded by a newer GoTo
+		}
 		if err != nil {
 			log.Printf("[Pathfinder] Path computation failed: %v", err)
 			if onFailed != nil {
@@ -111,8 +119,11 @@ func (p *Pathfinder) GoTo(x, y, z float64, sprint bool) error {
 		follower := NewFollower(path, sprint, onReached, onFailed)
 
 		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.gen != gen {
+			return
+		}
 		p.follower = follower
-		p.mu.Unlock()
 	}()
 
 	return nil
@@ -122,11 +133,18 @@ func (p *Pathfinder) GoTo(x, y, z float64, sprint bool) error {
 func (p *Pathfinder) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.gen++
 
 	if p.follower != nil {
 		p.follower.Stop(p.bot)
 		p.follower = nil
 	}
+}
+
+func (p *Pathfinder) isCurrent(gen uint64) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.gen == gen
 }
 
 // IsNavigating returns true if the bot is currently following a path.
