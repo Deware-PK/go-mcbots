@@ -145,14 +145,55 @@ func TestPhysicsCeilingStopsJump(t *testing.T) {
 }
 
 func TestPhysicsAirMovement(t *testing.T) {
-	// No floor: horizontal velocity follows v = (v + 0.02*input) * 0.91.
+	// No floor: horizontal velocity follows v = (v + 0.02*0.98) * 0.91.
+	const a = 0.02 * 0.98
 	b := body{X: 0.5, Y: 100, Z: 0.5}
 	b = stepPhysics(fakeWorld{}, b, ControlState{Forward: true}, yawPlusZ)
-	if want := 0.02 * 0.91; !approx(b.VZ, want) {
+	if want := a * 0.91; !approx(b.VZ, want) {
 		t.Fatalf("vz=%v, want %v", b.VZ, want)
 	}
 	b = stepPhysics(fakeWorld{}, b, ControlState{Forward: true}, yawPlusZ)
-	if want := (0.02*0.91 + 0.02) * 0.91; !approx(b.VZ, want) {
+	if want := (a*0.91 + a) * 0.91; !approx(b.VZ, want) {
 		t.Fatalf("vz=%v, want %v", b.VZ, want)
+	}
+}
+
+// Steady-state ground speeds must match vanilla: walk 4.317 m/s, sprint
+// 5.612 m/s, sneak 1.295 m/s (blocks per tick x 20).
+func TestPhysicsVanillaGroundSpeed(t *testing.T) {
+	w := fakeWorld{}.floor(63, -5, 5, -5, 400)
+	for _, tc := range []struct {
+		name string
+		ctrl ControlState
+		mps  float64
+	}{
+		{"walk", ControlState{Forward: true}, 4.317},
+		{"sprint", ControlState{Forward: true, Sprint: true}, 5.612},
+		{"sneak", ControlState{Forward: true, Sneak: true}, 1.295},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := run(w, body{X: 0.5, Y: 64, Z: 0.5, OnGround: true}, tc.ctrl, yawPlusZ, 60)
+			z0 := b.Z
+			b = run(w, b, tc.ctrl, yawPlusZ, 20) // one second
+			if got := b.Z - z0; math.Abs(got-tc.mps) > 0.01 {
+				t.Fatalf("speed = %.3f m/s, want %.3f", got, tc.mps)
+			}
+		})
+	}
+}
+
+// Sprint-jumping is faster than sprinting thanks to the 0.2 jump boost.
+func TestPhysicsSprintJumpBoost(t *testing.T) {
+	w := fakeWorld{}.floor(63, -5, 5, -5, 400)
+	sprint := ControlState{Forward: true, Sprint: true}
+	sj := ControlState{Forward: true, Sprint: true, Jump: true}
+	a := run(w, body{X: 0.5, Y: 64, Z: 0.5, OnGround: true}, sprint, yawPlusZ, 100)
+	b := run(w, body{X: 0.5, Y: 64, Z: 0.5, OnGround: true}, sj, yawPlusZ, 100)
+	if b.Z <= a.Z {
+		t.Fatalf("sprint-jump z=%.2f not faster than sprint z=%.2f", b.Z, a.Z)
+	}
+	// Vanilla sprint-jumping averages ~7.1 m/s.
+	if mps := (b.Z - 0.5) / 5; mps < 6.5 || mps > 7.6 {
+		t.Fatalf("sprint-jump average %.2f m/s, want ~7.1", mps)
 	}
 }

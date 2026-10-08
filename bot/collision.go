@@ -2,10 +2,20 @@ package bot
 
 import "math"
 
+// Vanilla player movement constants (LivingEntity.travel / Player).
 const (
-	jumpVelocity = 0.42
-	airAccel     = 0.02 // horizontal acceleration per tick while airborne
-	airFriction  = 0.91 // horizontal velocity multiplier per tick while airborne
+	jumpVelocity     = 0.42
+	sprintJumpBoost  = 0.2  // horizontal boost in facing direction when jumping while sprinting
+	baseMoveSpeed    = 0.1  // player movement_speed attribute
+	sprintMultiplier = 1.3  // sprinting adds +30% movement speed
+	sneakMultiplier  = 0.3  // sneaking_speed attribute (scales the input vector)
+	inputScale       = 0.98 // client multiplies forward/strafe input by 0.98
+	airAccel         = 0.02 // horizontal acceleration while airborne
+	airAccelSprint   = 0.026
+	airFriction      = 0.91 // horizontal velocity multiplier while airborne
+	defaultSlip      = 0.6  // block slipperiness of almost every block
+	groundAccelConst = 0.16277136
+	minVelocity      = 0.003 // vanilla zeroes tiny velocities
 
 	collisionEpsilon = 1e-7
 )
@@ -43,25 +53,44 @@ func (a aabb) offset(dx, dy, dz float64) aabb {
 func stepPhysics(w collider, b body, ctrl ControlState, yaw float32) body {
 	moveX, moveZ := inputVector(ctrl, yaw)
 
-	speed := WalkSpeed
-	if ctrl.Sprint {
-		speed = SprintSpeed
+	// Vanilla zeroes very small velocities at the start of the tick.
+	if math.Abs(b.VX) < minVelocity {
+		b.VX = 0
 	}
-	if ctrl.Sneak {
-		speed = SneakSpeed
+	if math.Abs(b.VZ) < minVelocity {
+		b.VZ = 0
 	}
 
 	wasOnGround := b.OnGround
-	if wasOnGround {
-		b.VX = moveX * speed * (1 - Drag)
-		b.VZ = moveZ * speed * (1 - Drag)
-		if ctrl.Jump {
-			b.VY = jumpVelocity
+
+	// Jump: vertical impulse, plus a forward boost when sprinting.
+	if wasOnGround && ctrl.Jump {
+		b.VY = jumpVelocity
+		if ctrl.Sprint {
+			yawRad := float64(yaw) * math.Pi / 180.0
+			b.VX -= math.Sin(yawRad) * sprintJumpBoost
+			b.VZ += math.Cos(yawRad) * sprintJumpBoost
 		}
-	} else {
-		b.VX += moveX * airAccel
-		b.VZ += moveZ * airAccel
 	}
+
+	// Friction for this tick depends on whether we started it on the ground.
+	friction := airFriction
+	var accel float64
+	if wasOnGround {
+		friction = defaultSlip * airFriction // 0.546
+		speed := baseMoveSpeed
+		if ctrl.Sprint {
+			speed *= sprintMultiplier
+		}
+		accel = speed * (groundAccelConst / (friction * friction * friction))
+	} else {
+		accel = airAccel
+		if ctrl.Sprint {
+			accel = airAccelSprint
+		}
+	}
+	b.VX += moveX * accel
+	b.VZ += moveZ * accel
 
 	dx, dy, dz := moveWithCollisions(w, playerBox(b.X, b.Y, b.Z), b.VX, b.VY, b.VZ)
 	b.X += dx
@@ -84,37 +113,43 @@ func stepPhysics(w collider, b body, ctrl ControlState, yaw float32) body {
 	if b.VY < TerminalVelocity {
 		b.VY = TerminalVelocity
 	}
-	if !wasOnGround {
-		b.VX *= airFriction
-		b.VZ *= airFriction
-	}
+	b.VX *= friction
+	b.VZ *= friction
 	return b
 }
 
-// inputVector returns the normalized horizontal movement direction.
+// inputVector returns the horizontal input in world space, as vanilla builds
+// it: each pressed key contributes 0.98 (x0.3 while sneaking), and the result
+// is normalized only when its length exceeds 1 (e.g. forward + strafe).
 func inputVector(ctrl ControlState, yaw float32) (moveX, moveZ float64) {
-	yawRad := float64(yaw) * math.Pi / 180.0
-	sin, cos := math.Sin(yawRad), math.Cos(yawRad)
+	var forward, strafe float64
 	if ctrl.Forward {
-		moveX -= sin
-		moveZ += cos
+		forward++
 	}
 	if ctrl.Back {
-		moveX += sin
-		moveZ -= cos
+		forward--
 	}
 	if ctrl.Left {
-		moveX += cos
-		moveZ += sin
+		strafe++
 	}
 	if ctrl.Right {
-		moveX -= cos
-		moveZ -= sin
+		strafe--
 	}
-	if l := math.Hypot(moveX, moveZ); l > 0 {
-		moveX /= l
-		moveZ /= l
+	forward *= inputScale
+	strafe *= inputScale
+	if ctrl.Sneak {
+		forward *= sneakMultiplier
+		strafe *= sneakMultiplier
 	}
+	if l := math.Hypot(forward, strafe); l > 1 {
+		forward /= l
+		strafe /= l
+	}
+
+	yawRad := float64(yaw) * math.Pi / 180.0
+	sin, cos := math.Sin(yawRad), math.Cos(yawRad)
+	moveX = strafe*cos - forward*sin
+	moveZ = forward*cos + strafe*sin
 	return moveX, moveZ
 }
 

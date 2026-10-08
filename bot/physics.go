@@ -10,10 +10,6 @@ import (
 const (
 	PhysicsIntervalMs = 50
 	Gravity           = 0.08
-	Drag              = 0.02
-	WalkSpeed         = 0.1
-	SprintSpeed       = 0.13
-	SneakSpeed        = 0.03
 	TerminalVelocity  = -3.92
 	PlayerWidth       = 0.6
 	PlayerHeight      = 1.8
