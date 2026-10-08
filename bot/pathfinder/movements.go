@@ -32,7 +32,9 @@ func getNeighbors(current *Node, world WorldView, opts Options) []Node {
 
 		// --- Drop down (1-3 blocks) ---
 		if world.IsPassable(dest.X, dest.Y, dest.Z) && world.IsPassable(dest.X, dest.Y+1, dest.Z) {
-			landY := world.IsSafeToFall(dest.X, dest.Y, dest.Z, opts.MaxFallDistance)
+			// Landing on the block dy below the feet is a fall of dy-1 blocks,
+			// so scan one block deeper than MaxFallDistance.
+			landY := world.IsSafeToFall(dest.X, dest.Y, dest.Z, opts.MaxFallDistance+1)
 			if landY >= 0 {
 				drop := Vec3{dest.X, landY, dest.Z}
 				fallDist := pos.Y - landY
