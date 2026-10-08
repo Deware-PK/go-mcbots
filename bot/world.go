@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	pk "github.com/deware-pk/go-mcbots/internal/protocol/net/packet"
+	v774 "github.com/deware-pk/go-mcbots/internal/protocol/versions/v774"
 )
 
 type chunkPos struct {
@@ -83,68 +84,41 @@ func (w *World) HasChunk(x, z int) bool {
 	return ok
 }
 
+// IsBlockSolid reports whether the block at (x,y,z) has collision.
+// Unloaded chunks read as air. Uses ClassifyBlock, like the pathfinder.
 func (w *World) IsBlockSolid(x, y, z int) bool {
-	blockState := w.GetBlock(x, y, z)
-	return blockState != 0
+	return ClassifyBlock(w.GetBlock(x, y, z)) == BlockSolid
 }
 
+// IsBlockSolidOrUnloaded is IsBlockSolid, but treats unloaded chunks as solid
+// so physics does not fall through the world before chunks arrive.
 func (w *World) IsBlockSolidOrUnloaded(x, y, z int) bool {
 	if !w.HasChunk(x, z) {
-		return true // assume solid when chunk not loaded (prevents falling through void)
+		return true
 	}
-	return w.GetBlock(x, y, z) != 0
+	return w.IsBlockSolid(x, y, z)
 }
 
-// BlockType classifies a block for pathfinding purposes.
+// BlockType classifies a block for physics and pathfinding.
 type BlockType int
 
 const (
-	BlockAir       BlockType = iota // passable, non-solid
-	BlockSolid                      // non-passable, can stand on
+	BlockAir       BlockType = iota // passable, non-solid (air, plants, torches, ...)
+	BlockSolid                      // has collision, can stand on
 	BlockWater                      // passable, swimmable
 	BlockClimbable                  // ladder, vine — climbable
-	BlockDangerous                  // lava, fire, cactus — avoid
+	BlockDangerous                  // lava, fire, cobweb, ... — passable but avoid
 )
 
-// Known block state ID ranges for Minecraft 1.21.x (protocol 774).
-// These are approximate and may need adjustment for different sub-versions.
-// Air variants
-var airStates = map[uint32]bool{
-	0:     true, // air
-	12516: true, // cave_air
-	12517: true, // void_air
-}
-
-// ClassifyBlock maps a block state ID to a BlockType.
+// ClassifyBlock maps a block state ID to a BlockType using the generated
+// 1.21.11 table (see internal/tools/genblocks). Unknown IDs count as solid.
+//
+// TODO: select the table per protocol version once more than one is supported.
 func ClassifyBlock(stateID uint32) BlockType {
-	if airStates[stateID] {
-		return BlockAir
+	if int(stateID) >= len(v774.BlockClasses) {
+		return BlockSolid
 	}
-	// Water: states 113-128 (water[level=0..15])
-	if stateID >= 113 && stateID <= 128 {
-		return BlockWater
-	}
-	// Lava: states 129-144 (lava[level=0..15])
-	if stateID >= 129 && stateID <= 144 {
-		return BlockDangerous
-	}
-	// Ladder: states 5765-5772 (4 facing * 2 waterlogged)
-	if stateID >= 5765 && stateID <= 5772 {
-		return BlockClimbable
-	}
-	// Vine: states 6849-6880 (32 states from boolean properties)
-	if stateID >= 6849 && stateID <= 6880 {
-		return BlockClimbable
-	}
-	// Fire: states 2600-2631
-	if stateID >= 2600 && stateID <= 2631 {
-		return BlockDangerous
-	}
-	// Cactus: states 5765 is already taken by ladder, cactus ~5654-5669
-	if stateID >= 5654 && stateID <= 5669 {
-		return BlockDangerous
-	}
-	return BlockSolid
+	return BlockType(v774.BlockClasses[stateID] - '0')
 }
 
 func (w *World) IsPassable(x, y, z int) bool {
