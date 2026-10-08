@@ -2,6 +2,7 @@ package pathfinder
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -175,10 +176,49 @@ func TestFindPathMaxPathLength(t *testing.T) {
 
 func TestFindPathUnloaded(t *testing.T) {
 	w := flat()
+	w.unloaded[[2]int{0, 0}] = true
+	if _, err := FindPath(Vec3{0, 64, 0}, Vec3{5, 64, 0}, w, DefaultOptions()); !errors.Is(err, ErrUnloaded) {
+		t.Fatalf("unloaded start: err = %v, want ErrUnloaded", err)
+	}
+
+	// An unloaded goal chunk is fine: the search heads toward it.
+	w = flat()
 	w.unloaded[[2]int{5, 0}] = true
-	_, err := FindPath(Vec3{0, 64, 0}, Vec3{5, 64, 0}, w, DefaultOptions())
-	if !errors.Is(err, ErrUnloaded) {
-		t.Fatalf("err = %v, want ErrUnloaded", err)
+	if _, err := FindPath(Vec3{0, 64, 0}, Vec3{5, 64, 0}, w, DefaultOptions()); err != nil {
+		t.Fatalf("unloaded goal: err = %v, want a path", err)
+	}
+}
+
+// A goal on top of a 2-block pillar can't be reached (no climbing), but the
+// search returns a partial path that ends right next to the pillar.
+func TestFindPathPartialToUnreachableGoal(t *testing.T) {
+	w := newFakeWorld().fill(-15, 63, -15, 15, 63, 15).fill(5, 64, 5, 5, 65, 5)
+	goal := Vec3{5, 66, 5}
+	path, err := FindPath(Vec3{-10, 64, -10}, goal, w, DefaultOptions())
+	if !errors.Is(err, ErrNoPath) && !errors.Is(err, ErrMaxIterations) {
+		t.Fatalf("err = %v, want ErrNoPath or ErrMaxIterations", err)
+	}
+	if len(path) < 2 {
+		t.Fatalf("no partial path returned")
+	}
+	end := path[len(path)-1].Pos
+	if d := end.DistanceTo(goal); d > 2.5 {
+		t.Fatalf("partial path ends at %v, %.1f blocks from goal; want next to the pillar", end, d)
+	}
+}
+
+// A search cut short by MaxIterations still makes progress toward the goal.
+func TestFindPathPartialOnMaxIterations(t *testing.T) {
+	w := newFakeWorld().fill(-5, 63, -5, 200, 63, 5)
+	opts := DefaultOptions()
+	opts.MaxIterations = 50
+	start, goal := Vec3{0, 64, 0}, Vec3{190, 64, 0}
+	path, err := FindPath(start, goal, w, opts)
+	if !errors.Is(err, ErrMaxIterations) {
+		t.Fatalf("err = %v, want ErrMaxIterations", err)
+	}
+	if len(path) < 2 || path[len(path)-1].Pos.DistanceTo(goal) >= start.DistanceTo(goal) {
+		t.Fatalf("partial path %v makes no progress", path)
 	}
 }
 
@@ -227,4 +267,44 @@ func TestGoToInstallsFollower(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+func TestGoToUnreachableReportsFailure(t *testing.T) {
+	w := newFakeWorld().fill(-15, 63, -15, 15, 63, 15).fill(5, 64, 5, 5, 65, 5)
+	bot := &fakeBot{-9.5, 64, -9.5}
+	p := New(bot, w)
+	failed := make(chan string, 1)
+	reached := make(chan struct{}, 1)
+	p.SetCallbacks(func() { reached <- struct{}{} }, func(r string) { failed <- r })
+
+	if err := p.GoTo(5.5, 66, 5.5, false); err != nil {
+		t.Fatal(err)
+	}
+	// Drive the follower: jump the fake bot along each waypoint.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		p.mu.Lock()
+		f := p.follower
+		p.mu.Unlock()
+		if f != nil && f.IsActive() {
+			cur, _ := f.GetProgress()
+			if cur < len(f.path) {
+				n := f.path[cur].Pos
+				bot.x, bot.y, bot.z = float64(n.X)+0.5, float64(n.Y), float64(n.Z)+0.5
+			}
+			p.Tick()
+		}
+		select {
+		case r := <-failed:
+			if !strings.Contains(r, ErrUnreachable.Error()) || !strings.Contains(r, "closest reachable point") {
+				t.Fatalf("failure reason = %q", r)
+			}
+			return
+		case <-reached:
+			t.Fatal("reported goal reached for an unreachable goal")
+		default:
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("no failure reported")
 }

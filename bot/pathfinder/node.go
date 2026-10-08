@@ -79,7 +79,7 @@ type Node struct {
 
 // Options configures the A* pathfinder.
 type Options struct {
-	MaxIterations   int  // max A* iterations before giving up (default 5000)
+	MaxIterations   int  // max A* iterations before giving up (default 10000)
 	MaxFallDistance int  // max safe fall distance in blocks (default 3)
 	AllowWater      bool // allow swimming through water
 	AllowLadder     bool // allow climbing ladders/vines
@@ -89,7 +89,7 @@ type Options struct {
 
 func DefaultOptions() Options {
 	return Options{
-		MaxIterations:   5000,
+		MaxIterations:   10000,
 		MaxFallDistance: 3,
 		// Off until physics can climb and swim; the follower cannot
 		// execute these moves yet.

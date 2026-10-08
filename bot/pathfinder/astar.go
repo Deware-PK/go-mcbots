@@ -10,7 +10,8 @@ var (
 	ErrNoPath        = errors.New("no path found")
 	ErrTooFar        = errors.New("path exceeds maximum length")
 	ErrMaxIterations = errors.New("exceeded maximum iterations")
-	ErrUnloaded      = errors.New("start or goal in unloaded chunk")
+	ErrUnloaded      = errors.New("start chunk not loaded")
+	ErrUnreachable   = errors.New("goal unreachable")
 )
 
 // WorldView provides read-only access to the world for the pathfinder.
@@ -28,13 +29,20 @@ type WorldView interface {
 }
 
 // FindPath computes an A* path from start to goal.
-// Returns a slice of Nodes from start to goal (inclusive), or ErrUnloaded if
-// the start or goal chunk is not loaded.
+//
+// On success it returns the nodes from start to goal (inclusive) and a nil
+// error. If the goal cannot be reached (ErrNoPath) or the search gives up
+// (ErrMaxIterations), it ALSO returns a partial path from start to the
+// explored node closest to the goal, so callers can move closer and re-plan.
+// The partial path is nil when no node is closer than the start.
+//
+// A goal in an unloaded chunk is allowed (the search heads toward it); only an
+// unloaded start chunk returns ErrUnloaded.
 func FindPath(start, goal Vec3, world WorldView, opts Options) ([]Node, error) {
 	if opts.MaxIterations == 0 {
 		opts = DefaultOptions()
 	}
-	if !world.HasChunk(start.X, start.Z) || !world.HasChunk(goal.X, goal.Z) {
+	if !world.HasChunk(start.X, start.Z) {
 		return nil, ErrUnloaded
 	}
 
@@ -53,11 +61,12 @@ func FindPath(start, goal Vec3, world WorldView, opts Options) ([]Node, error) {
 	gScores := map[Vec3]float64{start: 0}
 
 	iterations := 0
+	best := startNode // explored node closest to the goal
 
 	for openSet.Len() > 0 {
 		iterations++
 		if iterations > opts.MaxIterations {
-			return nil, ErrMaxIterations
+			return partialPath(startNode, best), ErrMaxIterations
 		}
 
 		current := heap.Pop(openSet).(*Node)
@@ -72,6 +81,9 @@ func FindPath(start, goal Vec3, world WorldView, opts Options) ([]Node, error) {
 		}
 
 		closedSet[current.Pos] = true
+		if current.H < best.H || (current.H == best.H && current.G < best.G) {
+			best = current
+		}
 
 		neighbors := getNeighbors(current, world, opts)
 		for _, neighbor := range neighbors {
@@ -107,7 +119,15 @@ func FindPath(start, goal Vec3, world WorldView, opts Options) ([]Node, error) {
 		}
 	}
 
-	return nil, ErrNoPath
+	return partialPath(startNode, best), ErrNoPath
+}
+
+// partialPath returns the path to best, or nil if best is the start.
+func partialPath(start, best *Node) []Node {
+	if best == start {
+		return nil
+	}
+	return reconstructPath(best)
 }
 
 // heuristic uses octile distance in 3D for A*.

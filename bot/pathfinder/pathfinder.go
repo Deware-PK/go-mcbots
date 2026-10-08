@@ -1,6 +1,7 @@
 package pathfinder
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -46,8 +47,17 @@ func (p *Pathfinder) SetOptions(opts Options) {
 	p.opts = opts
 }
 
+// maxReplans bounds how many times GoTo re-plans after following a partial
+// path (goal too far for one search, or unreachable).
+const maxReplans = 10
+
 // GoTo computes a path to the target and begins following it.
 // The A* computation runs in a goroutine to avoid blocking the physics loop.
+//
+// If the goal is too far for one search, the bot follows a partial path to
+// the closest point found and re-plans from there. If the goal is
+// unreachable, the bot walks to the closest reachable point and OnPathFailed
+// reports "goal unreachable".
 func (p *Pathfinder) GoTo(x, y, z float64, sprint bool) error {
 	p.mu.Lock()
 	p.gen++
@@ -57,13 +67,33 @@ func (p *Pathfinder) GoTo(x, y, z float64, sprint bool) error {
 		p.follower.Stop(p.bot)
 	}
 	p.follower = nil
+	p.mu.Unlock()
 
+	p.plan(gen, x, y, z, sprint, 0)
+	return nil
+}
+
+// plan runs one A* search toward (x, y, z) and installs a follower for the
+// result. replans counts previous partial paths for this GoTo.
+func (p *Pathfinder) plan(gen uint64, x, y, z float64, sprint bool, replans int) {
+	p.mu.Lock()
+	if p.gen != gen {
+		p.mu.Unlock()
+		return
+	}
 	bot := p.bot
 	world := p.world
 	opts := p.opts
 	onReached := p.onGoalReached
 	onFailed := p.onPathFailed
 	p.mu.Unlock()
+
+	fail := func(reason string) {
+		log.Printf("[Pathfinder] %s", reason)
+		if onFailed != nil {
+			onFailed(reason)
+		}
+	}
 
 	bx, by, bz := bot.GetPosition()
 	start := Vec3{
@@ -83,11 +113,14 @@ func (p *Pathfinder) GoTo(x, y, z float64, sprint bool) error {
 			start.Y++
 		}
 	}
+	// The goal Y is often typed by hand (F3 coordinates, the block looked
+	// at, a slab or carpet): snap to the nearest standable Y nearby.
 	if !world.CanStandAt(goal.X, goal.Y, goal.Z) {
-		if world.CanStandAt(goal.X, goal.Y+1, goal.Z) {
-			goal.Y++
-		} else if world.CanStandAt(goal.X, goal.Y-1, goal.Z) {
-			goal.Y--
+		for _, dy := range []int{1, -1, 2, -2, -3} {
+			if world.CanStandAt(goal.X, goal.Y+dy, goal.Z) {
+				goal.Y += dy
+				break
+			}
 		}
 	}
 
@@ -95,38 +128,60 @@ func (p *Pathfinder) GoTo(x, y, z float64, sprint bool) error {
 		if onReached != nil {
 			onReached()
 		}
-		return nil
+		return
 	}
 
 	go func() {
-		log.Printf("[Pathfinder] Computing path from %s to %s (start chunk loaded: %v, goal chunk loaded: %v)",
-			start, goal, world.HasChunk(start.X, start.Z), world.HasChunk(goal.X, goal.Z))
+		log.Printf("[Pathfinder] Computing path from %s to %s (attempt %d)", start, goal, replans+1)
 
 		path, err := FindPath(start, goal, world, opts)
 		if !p.isCurrent(gen) {
 			return // cancelled by Stop() or superseded by a newer GoTo
 		}
-		if err != nil {
-			log.Printf("[Pathfinder] Path computation failed: %v", err)
-			if onFailed != nil {
-				onFailed(fmt.Sprintf("pathfinding failed: %v", err))
+
+		switch {
+		case err == nil:
+			log.Printf("[Pathfinder] Path found: %d nodes", len(path))
+			p.follow(gen, path, sprint, onReached, onFailed)
+
+		case (errors.Is(err, ErrNoPath) || errors.Is(err, ErrMaxIterations)) &&
+			len(path) > 1 && replans < maxReplans:
+			end := path[len(path)-1].Pos
+			reason := "too far for one search"
+			if errors.Is(err, ErrNoPath) {
+				reason = "goal unreachable"
 			}
-			return
+			log.Printf("[Pathfinder] %s; following partial path (%d nodes) to %s, %.1f blocks from goal",
+				reason, len(path), end, end.DistanceTo(goal))
+			// When the partial path ends, re-plan from there. If the goal
+			// is unreachable the next search finds no closer node and fails.
+			p.follow(gen, path, sprint, func() {
+				p.plan(gen, x, y, z, sprint, replans+1)
+			}, onFailed)
+
+		case errors.Is(err, ErrNoPath) || errors.Is(err, ErrMaxIterations):
+			if replans > 0 {
+				fail(fmt.Sprintf("%v: stopped at the closest reachable point, %.1f blocks away",
+					ErrUnreachable, start.DistanceTo(goal)))
+			} else {
+				fail(fmt.Sprintf("%v: no walkable route from %s to %s", ErrUnreachable, start, goal))
+			}
+
+		default:
+			fail(fmt.Sprintf("pathfinding failed: %v", err))
 		}
-
-		log.Printf("[Pathfinder] Path found: %d nodes", len(path))
-
-		follower := NewFollower(path, sprint, onReached, onFailed)
-
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		if p.gen != gen {
-			return
-		}
-		p.follower = follower
 	}()
+}
 
-	return nil
+// follow installs a follower for path if gen is still current.
+func (p *Pathfinder) follow(gen uint64, path []Node, sprint bool, onReached func(), onFailed func(string)) {
+	follower := NewFollower(path, sprint, onReached, onFailed)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.gen != gen {
+		return
+	}
+	p.follower = follower
 }
 
 // Stop cancels the current navigation and clears bot controls.
