@@ -69,30 +69,31 @@ func (m MoveType) String() string {
 // Node is a single step in a path computed by the A* algorithm.
 type Node struct {
 	Pos    Vec3
-	G      float64  // cost from start to this node
-	H      float64  // heuristic cost from this node to goal
-	F      float64  // G + H
+	G      float64 // cost from start to this node
+	H      float64 // heuristic cost from this node to goal
+	F      float64 // G + H
 	Parent *Node
 	Move   MoveType // how we got here from parent
+	Depth  int      // number of moves from the start node
 }
 
 // Options configures the A* pathfinder.
 type Options struct {
-	MaxIterations   int     // max A* iterations before giving up (default 5000)
-	MaxFallDistance  int     // max safe fall distance in blocks (default 3)
-	AllowWater      bool    // allow swimming through water
-	AllowLadder     bool    // allow climbing ladders/vines
-	Sprint          bool    // allow sprint-jumping across gaps
-	MaxPathLength   int     // max path length (default 200)
+	MaxIterations   int  // max A* iterations before giving up (default 5000)
+	MaxFallDistance int  // max safe fall distance in blocks (default 3)
+	AllowWater      bool // allow swimming through water
+	AllowLadder     bool // allow climbing ladders/vines
+	Sprint          bool // allow sprint-jumping across gaps
+	MaxPathLength   int  // max path length (default 200)
 }
 
 func DefaultOptions() Options {
 	return Options{
-		MaxIterations:  5000,
+		MaxIterations:   5000,
 		MaxFallDistance: 3,
-		AllowWater:     true,
-		AllowLadder:    true,
-		Sprint:         true,
-		MaxPathLength:  200,
+		AllowWater:      true,
+		AllowLadder:     true,
+		Sprint:          true,
+		MaxPathLength:   200,
 	}
 }

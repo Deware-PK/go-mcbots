@@ -57,6 +57,11 @@ func FindPath(start, goal Vec3, world WorldView, opts Options) ([]Node, error) {
 		}
 
 		current := heap.Pop(openSet).(*Node)
+		// A position can be pushed several times with decreasing cost;
+		// only the first (cheapest) pop is expanded.
+		if closedSet[current.Pos] {
+			continue
+		}
 
 		if current.Pos.Equals(goal) {
 			return reconstructPath(current), nil
@@ -85,14 +90,13 @@ func FindPath(start, goal Vec3, world WorldView, opts Options) ([]Node, error) {
 				H:      heuristic(neighbor.Pos, goal),
 				Parent: current,
 				Move:   neighbor.Move,
+				Depth:  current.Depth + 1,
 			}
 			node.F = node.G + node.H
 
-			if opts.MaxPathLength > 0 {
-				pathLen := countPathLength(node)
-				if pathLen > opts.MaxPathLength {
-					continue
-				}
+			// Path length in nodes, including the start, is Depth+1.
+			if opts.MaxPathLength > 0 && node.Depth+1 > opts.MaxPathLength {
+				continue
 			}
 
 			heap.Push(openSet, node)
@@ -123,14 +127,6 @@ func reconstructPath(node *Node) []Node {
 		path[i], path[j] = path[j], path[i]
 	}
 	return path
-}
-
-func countPathLength(node *Node) int {
-	count := 0
-	for n := node; n != nil; n = n.Parent {
-		count++
-	}
-	return count
 }
 
 // nodeHeap implements heap.Interface for A* open set (min-heap on F cost).

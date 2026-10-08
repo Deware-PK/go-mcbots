@@ -64,33 +64,14 @@ func getNeighbors(current *Node, world WorldView, opts Options) []Node {
 			}
 		}
 
-		// --- Ladder up ---
+		// --- Climb onto an adjacent ladder ---
 		if opts.AllowLadder {
-			above := pos.Add(0, 1, 0)
-			if world.IsClimbable(pos.X, pos.Y, pos.Z) || world.IsClimbable(above.X, above.Y, above.Z) {
-				climbDest := pos.Add(0, 1, 0)
-				if world.IsPassable(climbDest.X, climbDest.Y+1, climbDest.Z) {
-					neighbors = append(neighbors, Node{Pos: climbDest, G: 1.5, Move: MoveLadderUp})
-				}
-			}
-			// Also check climbing from adjacent ladder
 			adjLadder := pos.Add(dx, 0, dz)
 			if world.IsClimbable(adjLadder.X, adjLadder.Y, adjLadder.Z) {
 				climbDest := adjLadder.Add(0, 1, 0)
 				if world.IsPassable(climbDest.X, climbDest.Y, climbDest.Z) &&
 					world.IsPassable(climbDest.X, climbDest.Y+1, climbDest.Z) {
 					neighbors = append(neighbors, Node{Pos: climbDest, G: 2.0, Move: MoveLadderUp})
-				}
-			}
-		}
-
-		// --- Ladder down ---
-		if opts.AllowLadder {
-			below := pos.Add(0, -1, 0)
-			if world.IsClimbable(pos.X, pos.Y, pos.Z) || world.IsClimbable(below.X, below.Y, below.Z) {
-				if world.IsPassable(below.X, below.Y, below.Z) ||
-					world.IsClimbable(below.X, below.Y, below.Z) {
-					neighbors = append(neighbors, Node{Pos: below, G: 1.5, Move: MoveLadderDown})
 				}
 			}
 		}
@@ -112,18 +93,40 @@ func getNeighbors(current *Node, world WorldView, opts Options) []Node {
 			if world.IsWater(swimDown.X, swimDown.Y, swimDown.Z) {
 				neighbors = append(neighbors, Node{Pos: swimDown, G: 2.0, Move: MoveSwim})
 			}
-			// Swim straight up (no horizontal movement)
-			straightUp := pos.Add(0, 1, 0)
-			if world.IsWater(pos.X, pos.Y, pos.Z) &&
-				(world.IsWater(straightUp.X, straightUp.Y, straightUp.Z) ||
-					world.IsPassable(straightUp.X, straightUp.Y, straightUp.Z)) {
-				neighbors = append(neighbors, Node{Pos: straightUp, G: 2.0, Move: MoveSwim})
+		}
+	}
+
+	// Straight up/down moves do not depend on direction, so they are added
+	// once here rather than once per cardinal direction.
+	if opts.AllowLadder {
+		// --- Ladder up ---
+		above := pos.Add(0, 1, 0)
+		if world.IsClimbable(pos.X, pos.Y, pos.Z) || world.IsClimbable(above.X, above.Y, above.Z) {
+			if world.IsPassable(above.X, above.Y+1, above.Z) {
+				neighbors = append(neighbors, Node{Pos: above, G: 1.5, Move: MoveLadderUp})
 			}
-			// Swim straight down
-			straightDown := pos.Add(0, -1, 0)
-			if world.IsWater(pos.X, pos.Y, pos.Z) && world.IsWater(straightDown.X, straightDown.Y, straightDown.Z) {
-				neighbors = append(neighbors, Node{Pos: straightDown, G: 1.5, Move: MoveSwim})
+		}
+		// --- Ladder down ---
+		below := pos.Add(0, -1, 0)
+		if world.IsClimbable(pos.X, pos.Y, pos.Z) || world.IsClimbable(below.X, below.Y, below.Z) {
+			if world.IsPassable(below.X, below.Y, below.Z) ||
+				world.IsClimbable(below.X, below.Y, below.Z) {
+				neighbors = append(neighbors, Node{Pos: below, G: 1.5, Move: MoveLadderDown})
 			}
+		}
+	}
+	if opts.AllowWater {
+		// --- Swim straight up ---
+		straightUp := pos.Add(0, 1, 0)
+		if world.IsWater(pos.X, pos.Y, pos.Z) &&
+			(world.IsWater(straightUp.X, straightUp.Y, straightUp.Z) ||
+				world.IsPassable(straightUp.X, straightUp.Y, straightUp.Z)) {
+			neighbors = append(neighbors, Node{Pos: straightUp, G: 2.0, Move: MoveSwim})
+		}
+		// --- Swim straight down ---
+		straightDown := pos.Add(0, -1, 0)
+		if world.IsWater(pos.X, pos.Y, pos.Z) && world.IsWater(straightDown.X, straightDown.Y, straightDown.Z) {
+			neighbors = append(neighbors, Node{Pos: straightDown, G: 1.5, Move: MoveSwim})
 		}
 	}
 
