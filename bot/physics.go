@@ -1,7 +1,6 @@
 package bot
 
 import (
-	"math"
 	"sync"
 	"time"
 
@@ -69,7 +68,7 @@ func (p *Physics) Start() {
 	p.lastSentTime = time.Now()
 	p.mu.Unlock()
 
-	go p.tickLoop()
+	go p.tickLoop(p.stopCh)
 }
 
 func (p *Physics) Stop() {
@@ -154,13 +153,13 @@ func (p *Physics) sendControlChanges(old, cur ControlState) {
 	}
 }
 
-func (p *Physics) tickLoop() {
+func (p *Physics) tickLoop(stopCh <-chan struct{}) {
 	ticker := time.NewTicker(PhysicsIntervalMs * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-p.stopCh:
+		case <-stopCh:
 			return
 		case <-ticker.C:
 			p.tick()
@@ -187,108 +186,16 @@ func (p *Physics) simulatePlayer() {
 	x, y, z := p.bot.state.GetPosition()
 	vx, vy, vz := p.bot.state.GetVelocity()
 	yaw, _ := p.bot.state.GetRotation()
-	onGround := p.bot.state.IsOnGround()
 
-	yawRad := float64(yaw) * math.Pi / 180.0
+	next := stepPhysics(p.bot.world, body{
+		X: x, Y: y, Z: z,
+		VX: vx, VY: vy, VZ: vz,
+		OnGround: p.bot.state.IsOnGround(),
+	}, ctrl, yaw)
 
-	var moveX, moveZ float64
-	if ctrl.Forward {
-		moveX -= math.Sin(yawRad)
-		moveZ += math.Cos(yawRad)
-	}
-	if ctrl.Back {
-		moveX += math.Sin(yawRad)
-		moveZ -= math.Cos(yawRad)
-	}
-	if ctrl.Left {
-		moveX += math.Cos(yawRad)
-		moveZ += math.Sin(yawRad)
-	}
-	if ctrl.Right {
-		moveX -= math.Cos(yawRad)
-		moveZ -= math.Sin(yawRad)
-	}
-
-	length := math.Sqrt(moveX*moveX + moveZ*moveZ)
-	if length > 0 {
-		moveX /= length
-		moveZ /= length
-	}
-
-	speed := WalkSpeed
-	if ctrl.Sprint {
-		speed = SprintSpeed
-	}
-	if ctrl.Sneak {
-		speed = SneakSpeed
-	}
-
-	if onGround {
-		vx = moveX * speed
-		vz = moveZ * speed
-
-		if ctrl.Jump {
-			vy = 0.42
-		}
-	} else {
-		vx += moveX * 0.02
-		vz += moveZ * 0.02
-	}
-
-	vy -= Gravity
-	if vy < TerminalVelocity {
-		vy = TerminalVelocity
-	}
-
-	vx *= (1 - Drag)
-	vz *= (1 - Drag)
-	vy *= 0.98
-
-	newX := x + vx
-	newY := y + vy
-	newZ := z + vz
-
-	newOnGround := false
-
-	blockBelowY := int(math.Floor(newY - 0.01))
-	blockX := int(math.Floor(newX))
-	blockZ := int(math.Floor(newZ))
-
-	if p.bot.world.IsBlockSolidOrUnloaded(blockX, blockBelowY, blockZ) {
-		groundY := float64(blockBelowY + 1)
-		if newY < groundY {
-			newY = groundY
-			vy = 0
-			newOnGround = true
-		}
-	}
-
-	halfW := PlayerWidth / 2.0
-	checkPositions := [][2]int{
-		{int(math.Floor(newX - halfW)), int(math.Floor(newZ - halfW))},
-		{int(math.Floor(newX + halfW)), int(math.Floor(newZ - halfW))},
-		{int(math.Floor(newX - halfW)), int(math.Floor(newZ + halfW))},
-		{int(math.Floor(newX + halfW)), int(math.Floor(newZ + halfW))},
-	}
-
-	feetY := int(math.Floor(newY))
-	headY := int(math.Floor(newY + PlayerHeight))
-	for checkY := feetY; checkY <= headY; checkY++ {
-		for _, cp := range checkPositions {
-			if p.bot.world.IsBlockSolid(cp[0], checkY, cp[1]) {
-				newX = x
-				newZ = z
-				vx = 0
-				vz = 0
-				goto doneCollision
-			}
-		}
-	}
-doneCollision:
-
-	p.bot.state.SetPosition(newX, newY, newZ)
-	p.bot.state.SetVelocity(vx, vy, vz)
-	p.bot.state.SetOnGround(newOnGround)
+	p.bot.state.SetPosition(next.X, next.Y, next.Z)
+	p.bot.state.SetVelocity(next.VX, next.VY, next.VZ)
+	p.bot.state.SetOnGround(next.OnGround)
 }
 
 func (p *Physics) updatePosition() {
