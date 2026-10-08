@@ -66,8 +66,11 @@ func (b *Bot) waitLoginSuccess() error {
 			return b.handleConfiguration()
 
 		case b.version.IDs.CB_Disconnect:
+			// Login-state disconnect: the reason is a JSON text component.
 			var reason pk.String
 			p.Scan(&reason)
+			b.Events.emit("disconnect", string(reason))
+			return fmt.Errorf("disconnected during login: %s", reason)
 
 		default:
 			fmt.Printf("→ unhandled packet 0x%02X\n", p.ID)
@@ -118,9 +121,18 @@ func (b *Bot) handleConfiguration() error {
 		case b.version.IDs.CB_FeatureFlags:
 			// Ignored
 
-		case b.version.IDs.CB_Disconnect:
-			var reason pk.String
-			p.Scan(&reason)
+		case b.version.IDs.CB_KeepAlive_Config:
+			var id pk.Long
+			if err := p.Scan(&id); err != nil {
+				return fmt.Errorf("config keep-alive: %w", err)
+			}
+			if err := b.writePacket(pk.Marshal(pk.VarInt(b.version.IDs.SB_KeepAlive_Config), id)); err != nil {
+				return err
+			}
+
+		case b.version.IDs.CB_Disconnect_Config:
+			reason := readDisconnectReason(p)
+			b.Events.emit("disconnect", reason)
 			return fmt.Errorf("disconnected during config: %s", reason)
 
 		default:

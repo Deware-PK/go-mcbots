@@ -34,7 +34,7 @@ import (
 )
 
 func main() {
-	ver, _ := bot.ResolveVersion("1.21.11")
+	ver, _ := bot.ResolveVersion(bot.LatestVersion) // or "1.21.11"
 	b := bot.New("GoBot", ver)
 	b.Events.OnSpawn = func() { b.Chat("Hello from go-mcbots!") }
 	b.Events.OnChat = func(sender, msg string) { log.Printf("<%s> %s", sender, msg) }
@@ -51,7 +51,7 @@ go run ./examples/hello -addr localhost:25565 -name GoBot
 ## Swarm
 
 ```go
-ver, _ := bot.ResolveVersion("1.21.11")
+ver, _ := bot.ResolveVersion(bot.LatestVersion)
 s := swarm.New()
 for i := 1; i <= 10; i++ {
 	name := fmt.Sprintf("Bot_%d", i)
@@ -70,16 +70,35 @@ go run ./examples/swarm -addr localhost:25565 -n 10 -prefix Bot_
 
 ## Supported versions
 
-| Minecraft | Protocol |
-|-----------|----------|
-| 1.21.11   | 774      |
+| Minecraft | Protocol | Notes |
+|-----------|----------|-------|
+| 26.2      | 776      | Latest (`bot.LatestVersion`). Tested on Paper. |
+| 1.21.11   | 774      | |
 
-Only offline-mode (`online-mode=false`) servers are supported.
+Only offline-mode (`online-mode=false`) servers are supported. The examples
+take `-version`, e.g. `go run ./examples/testbot -version 1.21.11`.
+
+### Adding a version
+
+Packet IDs and block state IDs are generated from the vanilla server's data
+generator, not written by hand:
+
+```bash
+java -DbundlerMainClass=net.minecraft.data.Main -jar server.jar --reports --output gen
+go run ./internal/tools/genpackets -report gen/reports/packets.json -version 26.2 \
+    -out internal/protocol/versions/v776/packets.go -pkg v776
+go run ./internal/tools/genblocks -mojang gen/reports/blocks.json \
+    -data <minecraft-data>/data/pc/26.1 -mdversion 26.1 -version 26.2 \
+    -out internal/protocol/versions/v776/blocks.go -pkg v776
+```
+
+Packet *layouts* still need checking against the server classes (26.x jars
+are not obfuscated, so `javap -p -c` on the packet classes is enough).
 
 ## Roadmap
 
 - **Easier API** — simpler, higher-level bot API
-- **Minecraft 26.1 support** — via generated protocol data instead of hand-written packet tables
+- **Minecraft 26.3 support** — same generators as 26.2
 - **CI integration tests** — run bots against a real server in CI
 
 ## Responsible Use

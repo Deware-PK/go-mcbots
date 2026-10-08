@@ -14,10 +14,11 @@ import (
 
 func main() {
 	addr := flag.String("addr", "localhost:25565", "server address (offline mode)")
+	version := flag.String("version", bot.LatestVersion, "Minecraft version of the server (see bot.SupportedVersions)")
 	name := flag.String("name", "GoBot", "bot username")
 	flag.Parse()
 
-	ver, err := bot.ResolveVersion("1.21.11")
+	ver, err := bot.ResolveVersion(*version)
 	if err != nil {
 		log.Fatal(err)
 	}

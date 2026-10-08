@@ -17,12 +17,13 @@ import (
 
 func main() {
 	addr := flag.String("addr", "localhost:25565", "server address (offline mode)")
+	version := flag.String("version", bot.LatestVersion, "Minecraft version of the server (see bot.SupportedVersions)")
 	n := flag.Int("n", 5, "number of bots")
 	prefix := flag.String("prefix", "Bot_", "username prefix")
 	delay := flag.Duration("delay", 500*time.Millisecond, "delay between joins")
 	flag.Parse()
 
-	ver, err := bot.ResolveVersion("1.21.11")
+	ver, err := bot.ResolveVersion(*version)
 	if err != nil {
 		log.Fatal(err)
 	}

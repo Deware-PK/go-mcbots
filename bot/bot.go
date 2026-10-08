@@ -47,7 +47,7 @@ func New(name string, version Version) *Bot {
 		state:   newState(),
 	}
 	b.awaitingSpawn.Store(true)
-	b.world = newWorld()
+	b.world = newWorld(version.BlockClasses)
 	b.physics = newPhysics(b)
 	b.nav = pathfinder.New(b, b.world)
 	b.nav.SetCallbacks(

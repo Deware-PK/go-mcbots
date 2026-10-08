@@ -14,18 +14,21 @@ var Info = types.VersionInfo{
 		SB_LoginStart:     0x00,
 		SB_LoginAck:       0x03,
 		CB_LoginSuccess:   0x02,
-		CB_Disconnect:     0x02,
+		CB_Disconnect:     0x00, // login_disconnect (was 0x02, which is login_finished)
 		CB_SetCompression: 0x03,
 
 		// — Configuration —
-		SB_KnownPacks:     0x07,
-		SB_FinishConfig:   0x03,
-		SB_PluginResponse: 0x02,
-		CB_KnownPacks:     0x0E,
-		CB_RegistryData:   0x07,
-		CB_FinishConfig:   0x03,
-		CB_PluginRequest:  0x01,
-		CB_FeatureFlags:   0x0C,
+		SB_KnownPacks:        0x07,
+		SB_FinishConfig:      0x03,
+		SB_PluginResponse:    0x02,
+		CB_KnownPacks:        0x0E,
+		CB_RegistryData:      0x07,
+		CB_FinishConfig:      0x03,
+		CB_PluginRequest:     0x01,
+		CB_FeatureFlags:      0x0C,
+		CB_Disconnect_Config: 0x02,
+		CB_KeepAlive_Config:  0x04,
+		SB_KeepAlive_Config:  0x04,
 
 		// — Play (Serverbound) —
 		SB_AcceptTeleport:         0x00,
@@ -51,6 +54,7 @@ var Info = types.VersionInfo{
 		CB_ChunkBatchStart:         0x0C,
 		CB_SpawnEntity:             0x01,
 		CB_BlockUpdate:             0x08,
+		CB_SectionBlocksUpdate:     0x52,
 		CB_Disconnect_Play:         0x20,
 		CB_UnloadChunk:             0x25,
 		CB_GameEvent:               0x26,
@@ -65,4 +69,5 @@ var Info = types.VersionInfo{
 		CB_UpdateHealth:            0x66,
 		CB_SystemChat:              0x77,
 	},
+	BlockClasses: BlockClasses,
 }

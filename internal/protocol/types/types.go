@@ -55,6 +55,10 @@ type PacketIDs struct {
 	CB_SpawnEntity             int32
 	CB_BlockUpdate             int32
 	CB_Disconnect_Play         int32
+	CB_SectionBlocksUpdate     int32
+	CB_Disconnect_Config       int32
+	CB_KeepAlive_Config        int32
+	SB_KeepAlive_Config        int32
 	CB_UnloadChunk             int32
 	CB_GameEvent               int32
 	CB_KeepAlive               int32
@@ -63,14 +67,22 @@ type PacketIDs struct {
 	CB_PlayerChat              int32
 	CB_SyncPosition            int32
 	CB_SetDefaultSpawnPosition int32
-	CB_Respawn                  int32
-	CB_UpdateHealth             int32
-	CB_SystemChat               int32
-	CB_CombatDeath              int32
+	CB_Respawn                 int32
+	CB_UpdateHealth            int32
+	CB_SystemChat              int32
+	CB_CombatDeath             int32
 }
 
 type VersionInfo struct {
 	MCVersion      string // "1.21.11"
 	ProtocolNumber int    // 774
 	IDs            PacketIDs
+
+	// BlockClasses holds one physics/pathfinding class per block state ID
+	// (generated, see internal/tools/genblocks).
+	BlockClasses string
+
+	// SectionFluidCount: chunk sections carry a fluid count (Short) after
+	// the non-empty block count (26.1+).
+	SectionFluidCount bool
 }
