@@ -28,10 +28,14 @@ type WorldView interface {
 }
 
 // FindPath computes an A* path from start to goal.
-// Returns a slice of Nodes from start to goal (inclusive).
+// Returns a slice of Nodes from start to goal (inclusive), or ErrUnloaded if
+// the start or goal chunk is not loaded.
 func FindPath(start, goal Vec3, world WorldView, opts Options) ([]Node, error) {
 	if opts.MaxIterations == 0 {
 		opts = DefaultOptions()
+	}
+	if !world.HasChunk(start.X, start.Z) || !world.HasChunk(goal.X, goal.Z) {
+		return nil, ErrUnloaded
 	}
 
 	startNode := &Node{
