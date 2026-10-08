@@ -2,6 +2,7 @@ package bot
 
 import (
 	"fmt"
+	"log"
 
 	pk "github.com/deware-pk/go-mcbots/internal/protocol/net/packet"
 )
@@ -97,7 +98,12 @@ func (b *Bot) handleConfiguration() error {
 			}
 
 		case b.version.IDs.CB_RegistryData:
-			// intentionally ignored
+			id, dims, err := parseRegistryData(p.Data)
+			if err != nil {
+				log.Printf("[World] registry data %q: %v", id, err)
+			} else if id == "minecraft:dimension_type" {
+				b.dimTypes = dims
+			}
 
 		case b.version.IDs.CB_PluginRequest:
 			// intentionally ignored

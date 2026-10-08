@@ -168,7 +168,8 @@ func (p *Physics) tickLoop(stopCh <-chan struct{}) {
 }
 
 func (p *Physics) tick() {
-	if !p.bot.state.IsAlive() {
+	// No movement between Respawn and the following position sync.
+	if !p.bot.state.IsAlive() || p.bot.awaitingSpawn.Load() {
 		return
 	}
 
@@ -199,6 +200,9 @@ func (p *Physics) simulatePlayer() {
 }
 
 func (p *Physics) updatePosition() {
+	if p.bot.awaitingSpawn.Load() {
+		return // a respawn arrived during this tick
+	}
 	x, y, z := p.bot.state.GetPosition()
 	yaw, pitch := p.bot.state.GetRotation()
 	onGround := p.bot.state.IsOnGround()

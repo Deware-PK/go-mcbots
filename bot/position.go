@@ -1,7 +1,9 @@
 package bot
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"math"
 
 	pk "github.com/deware-pk/go-mcbots/internal/protocol/net/packet"
@@ -65,13 +67,43 @@ func (b *Bot) acceptTeleport(teleportID int32) error {
 }
 
 func (b *Bot) handleLogin(p pk.Packet) error {
-	var entityID pk.Int
-	if err := p.Scan(&entityID); err != nil {
+	r := bytes.NewReader(p.Data)
+	var (
+		entityID                                  pk.Int
+		hardcore, reducedDebug, respawnScreen     pk.Boolean
+		limitedCrafting                           pk.Boolean
+		worldCount, maxPlayers, viewDist, simDist pk.VarInt
+	)
+	if _, err := entityID.ReadFrom(r); err != nil {
 		return fmt.Errorf("failed to parse login: %w", err)
 	}
 	b.state.mu.Lock()
 	b.state.EntityID = int32(entityID)
 	b.state.mu.Unlock()
+
+	// Skip to SpawnInfo for the dimension type (protocol 774 layout).
+	if _, err := hardcore.ReadFrom(r); err != nil {
+		return fmt.Errorf("login hardcore: %w", err)
+	}
+	if _, err := worldCount.ReadFrom(r); err != nil {
+		return fmt.Errorf("login world count: %w", err)
+	}
+	for i := 0; i < int(worldCount); i++ {
+		var name pk.String
+		if _, err := name.ReadFrom(r); err != nil {
+			return fmt.Errorf("login world name: %w", err)
+		}
+	}
+	for _, f := range []io.ReaderFrom{&maxPlayers, &viewDist, &simDist, &reducedDebug, &respawnScreen, &limitedCrafting} {
+		if _, err := f.ReadFrom(r); err != nil {
+			return fmt.Errorf("login: %w", err)
+		}
+	}
+	dim, err := readSpawnInfoDimension(r)
+	if err != nil {
+		return fmt.Errorf("login dimension: %w", err)
+	}
+	b.applyDimension(dim)
 	return nil
 }
 
@@ -93,19 +125,30 @@ func (b *Bot) handleUpdateHealth(p pk.Packet) error {
 			b.Events.emit("death")
 		}
 	} else if !b.state.IsAlive() {
-		b.state.SetAlive(true)
-		b.Events.emit("spawn")
+		b.state.SetAlive(true) // "spawn" is emitted on the position sync after respawn
 	}
 
 	b.Events.emit("health_update", float32(health), float32(food))
 	return nil
 }
 
-func (b *Bot) handleRespawn(p pk.Packet) {
+// handleRespawn handles death respawns and dimension changes. Physics stays
+// stopped until the next Synchronize Player Position (see HandleGame).
+func (b *Bot) handleRespawn(p pk.Packet) error {
+	dim, err := readSpawnInfoDimension(bytes.NewReader(p.Data))
+	if err != nil {
+		return fmt.Errorf("respawn dimension: %w", err)
+	}
+
+	b.awaitingSpawn.Store(true)
+	b.physics.Stop()
+	b.nav.Stop()
+
 	b.state.SetAlive(true)
 	b.state.SetVelocity(0, 0, 0)
-	b.state.SetOnGround(true)
-	b.physics.Start()
+	b.state.SetOnGround(false)
+	b.applyDimension(dim)
+	return nil
 }
 
 func (b *Bot) handleSpawnPosition(p pk.Packet) error {

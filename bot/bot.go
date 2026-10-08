@@ -2,6 +2,7 @@ package bot
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/deware-pk/go-mcbots/bot/pathfinder"
 	"github.com/deware-pk/go-mcbots/internal/protocol"
@@ -17,6 +18,12 @@ type Bot struct {
 	world   *World
 	physics *Physics
 	nav     *pathfinder.Pathfinder
+
+	// awaitingSpawn is true from join/respawn until the first Synchronize
+	// Player Position; physics must not send movement in between.
+	awaitingSpawn atomic.Bool
+	// dimTypes is the minecraft:dimension_type registry from configuration.
+	dimTypes []dimensionType
 
 	Name    string
 	Events  Events
@@ -39,6 +46,7 @@ func New(name string, version Version) *Bot {
 		version: version,
 		state:   newState(),
 	}
+	b.awaitingSpawn.Store(true)
 	b.world = newWorld()
 	b.physics = newPhysics(b)
 	b.nav = pathfinder.New(b, b.world)
@@ -55,6 +63,7 @@ func (b *Bot) Connect(addr string) error {
 		return err
 	}
 	b.conn = conn
+	b.awaitingSpawn.Store(true)
 	return b.login(addr)
 }
 

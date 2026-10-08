@@ -212,6 +212,14 @@ func (w *World) UnloadChunk(x, z int32) {
 	delete(w.chunks, chunkPos{x, z})
 }
 
+// reset drops all chunks and sets the dimension height range.
+func (w *World) reset(minY, height int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.chunks = make(map[chunkPos]*ChunkColumn)
+	w.MinY, w.Height = minY, height
+}
+
 func (w *World) ChunkCount() int {
 	w.mu.RLock()
 	defer w.mu.RUnlock()

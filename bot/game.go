@@ -13,8 +13,6 @@ func (b *Bot) HandleGame() error {
 		}
 	}()
 
-	spawned := false
-
 	for {
 		var p pk.Packet
 		if err := b.conn.ReadPacket(&p); err != nil {
@@ -38,8 +36,8 @@ func (b *Bot) HandleGame() error {
 			if err := b.handleSyncPosition(p); err != nil {
 				return fmt.Errorf("sync position error: %w", err)
 			}
-			if !spawned {
-				spawned = true
+			// First position after join or respawn: we are in the world.
+			if b.awaitingSpawn.CompareAndSwap(true, false) {
 				b.sendPlayerLoaded()
 				b.physics.Start()
 				b.Events.emit("spawn")
@@ -77,7 +75,9 @@ func (b *Bot) HandleGame() error {
 			}
 
 		case b.version.IDs.CB_Respawn:
-			b.handleRespawn(p)
+			if err := b.handleRespawn(p); err != nil {
+				return fmt.Errorf("respawn error: %w", err)
+			}
 
 		case b.version.IDs.CB_CombatDeath:
 			// Death screen - death already handled via health=0
