@@ -91,9 +91,11 @@ func DefaultOptions() Options {
 	return Options{
 		MaxIterations:   5000,
 		MaxFallDistance: 3,
-		AllowWater:      true,
-		AllowLadder:     true,
-		Sprint:          true,
-		MaxPathLength:   200,
+		// Off until physics can climb and swim; the follower cannot
+		// execute these moves yet.
+		AllowWater:    false,
+		AllowLadder:   false,
+		Sprint:        true,
+		MaxPathLength: 200,
 	}
 }
