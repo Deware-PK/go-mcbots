@@ -68,6 +68,8 @@ var Info = types.VersionInfo{
 		CB_SetDefaultSpawnPosition: 0x5F,
 		CB_UpdateHealth:            0x66,
 		CB_SystemChat:              0x77,
+		CB_SetEntityMotion:         0x63,
+		CB_Explode:                 0x24,
 	},
 	BlockClasses: BlockClasses,
 }

@@ -70,6 +70,8 @@ var fields = []struct{ field, state, direction, name string }{
 	{"CB_SetDefaultSpawnPosition", "play", "clientbound", "minecraft:set_default_spawn_position"},
 	{"CB_UpdateHealth", "play", "clientbound", "minecraft:set_health"},
 	{"CB_SystemChat", "play", "clientbound", "minecraft:system_chat"},
+	{"CB_SetEntityMotion", "play", "clientbound", "minecraft:set_entity_motion"},
+	{"CB_Explode", "play", "clientbound", "minecraft:explode"},
 }
 
 type report map[string]map[string]map[string]struct {

@@ -58,4 +58,6 @@ var IDs = types.PacketIDs{
 	CB_SetDefaultSpawnPosition: 0x61, // play clientbound minecraft:set_default_spawn_position
 	CB_UpdateHealth:            0x68, // play clientbound minecraft:set_health
 	CB_SystemChat:              0x79, // play clientbound minecraft:system_chat
+	CB_SetEntityMotion:         0x65, // play clientbound minecraft:set_entity_motion
+	CB_Explode:                 0x24, // play clientbound minecraft:explode
 }

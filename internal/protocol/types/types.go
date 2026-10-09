@@ -71,6 +71,8 @@ type PacketIDs struct {
 	CB_UpdateHealth            int32
 	CB_SystemChat              int32
 	CB_CombatDeath             int32
+	CB_SetEntityMotion         int32
+	CB_Explode                 int32
 }
 
 type VersionInfo struct {

@@ -45,6 +45,7 @@ func (b *Bot) handleSyncPosition(p pk.Packet) error {
 	b.state.SetPosition(newX, newY, newZ)
 	b.state.SetRotation(newYaw, newPitch)
 	b.state.SetOnGround(true)
+	b.physics.clearMotion()
 	b.state.SetVelocity(float64(deltaX), float64(deltaY), float64(deltaZ))
 
 	if err := b.acceptTeleport(int32(teleportID)); err != nil {

@@ -81,6 +81,16 @@ func (b *Bot) HandleGame() error {
 				fmt.Printf("[World] %v\n", err)
 			}
 
+		case b.version.IDs.CB_SetEntityMotion:
+			if err := b.handleSetEntityMotion(p); err != nil {
+				fmt.Printf("[Physics] %v\n", err)
+			}
+
+		case b.version.IDs.CB_Explode:
+			if err := b.handleExplode(p); err != nil {
+				fmt.Printf("[Physics] %v\n", err)
+			}
+
 		case b.version.IDs.CB_UnloadChunk:
 			if err := b.handleUnloadChunk(p); err != nil {
 				// non-fatal

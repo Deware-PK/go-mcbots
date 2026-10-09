@@ -69,6 +69,12 @@ func main() {
 	b.Events.OnSystemMessage = func(message string) {
 		log.Printf("[system] %s", message)
 	}
+	b.Events.OnKnockback = func(vx, vy, vz float64) {
+		log.Printf("[knockback] velocity %.3f %.3f %.3f", vx, vy, vz)
+	}
+	b.Events.OnExplosion = func(x, y, z float64, radius float32) {
+		log.Printf("[explosion] at %.1f %.1f %.1f radius %.1f", x, y, z, radius)
+	}
 	b.Events.OnDisconnect = func(reason string) {
 		log.Printf("[disconnect] %s", reason)
 	}

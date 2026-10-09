@@ -37,6 +37,51 @@ type Physics struct {
 	lastSentOnGround                bool
 	lastSentTime                    time.Time
 	shouldSendPosition              bool
+
+	// Velocity from the server (knockback), applied at the start of the next
+	// tick so it is not lost to the tick's own velocity write.
+	motion pendingMotion
+}
+
+// pendingMotion accumulates server velocity changes between ticks, in
+// arrival order: a set replaces everything before it, an add stacks.
+type pendingMotion struct {
+	set        bool    // a Set Entity Velocity arrived
+	sx, sy, sz float64 // ...with this velocity
+	ax, ay, az float64 // explosion knockback added on top
+}
+
+// queueMotion records a server velocity change. add=false replaces the
+// velocity (Set Entity Velocity); add=true adds to it (Explosion).
+func (p *Physics) queueMotion(x, y, z float64, add bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if add {
+		p.motion.ax += x
+		p.motion.ay += y
+		p.motion.az += z
+		return
+	}
+	p.motion = pendingMotion{set: true, sx: x, sy: y, sz: z}
+}
+
+// clearMotion drops queued server velocity (a teleport sets its own).
+func (p *Physics) clearMotion() {
+	p.mu.Lock()
+	p.motion = pendingMotion{}
+	p.mu.Unlock()
+}
+
+// applyMotion folds the queued server velocity into v and clears the queue.
+func (p *Physics) applyMotion(vx, vy, vz float64) (float64, float64, float64) {
+	p.mu.Lock()
+	m := p.motion
+	p.motion = pendingMotion{}
+	p.mu.Unlock()
+	if m.set {
+		vx, vy, vz = m.sx, m.sy, m.sz
+	}
+	return vx + m.ax, vy + m.ay, vz + m.az
 }
 
 func newPhysics(bot *Bot) *Physics {
@@ -181,7 +226,7 @@ func (p *Physics) simulatePlayer() {
 	p.mu.RUnlock()
 
 	x, y, z := p.bot.state.GetPosition()
-	vx, vy, vz := p.bot.state.GetVelocity()
+	vx, vy, vz := p.applyMotion(p.bot.state.GetVelocity())
 	yaw, _ := p.bot.state.GetRotation()
 
 	next := stepPhysics(p.bot.world, body{
