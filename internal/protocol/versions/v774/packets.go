@@ -17,6 +17,11 @@ var Info = types.VersionInfo{
 		CB_Disconnect:     0x00, // login_disconnect (was 0x02, which is login_finished)
 		CB_SetCompression: 0x03,
 
+		CB_LoginPluginRequest:   0x04,
+		SB_LoginPluginResponse:  0x02,
+		CB_CookieRequest_Login:  0x05,
+		SB_CookieResponse_Login: 0x04,
+
 		// — Configuration —
 		SB_KnownPacks:        0x07,
 		SB_FinishConfig:      0x03,
@@ -29,6 +34,16 @@ var Info = types.VersionInfo{
 		CB_Disconnect_Config: 0x02,
 		CB_KeepAlive_Config:  0x04,
 		SB_KeepAlive_Config:  0x04,
+
+		SB_ClientInformation_Config: 0x00,
+		CB_Ping_Config:              0x05,
+		SB_Pong_Config:              0x05,
+		CB_ResourcePackPush_Config:  0x09,
+		SB_ResourcePack_Config:      0x06,
+		CB_CookieRequest_Config:     0x00,
+		SB_CookieResponse_Config:    0x01,
+		CB_CodeOfConduct:            0x13,
+		SB_AcceptCodeOfConduct:      0x09,
 
 		// — Play (Serverbound) —
 		SB_AcceptTeleport:         0x00,
@@ -48,6 +63,10 @@ var Info = types.VersionInfo{
 		SB_ChunkBatchReceived:     0x0A,
 		SB_PlayerLoaded:           0x2B,
 		SB_UseItem:                0x38,
+		SB_ConfigurationAck:       0x0F,
+		SB_Pong:                   0x2C,
+		SB_ResourcePack:           0x30,
+		SB_CookieResponse:         0x14,
 
 		// — Play (Clientbound) —
 		CB_ChunkBatchFinished:      0x0B,
@@ -70,6 +89,11 @@ var Info = types.VersionInfo{
 		CB_SystemChat:              0x77,
 		CB_SetEntityMotion:         0x63,
 		CB_Explode:                 0x24,
+		CB_StartConfiguration:      0x74,
+		CB_Ping:                    0x3B,
+		CB_ResourcePackPush:        0x4F,
+		CB_CookieRequest:           0x15,
 	},
 	BlockClasses: BlockClasses,
+	BlockShapes:  BlockShapes,
 }

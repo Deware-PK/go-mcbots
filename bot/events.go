@@ -19,6 +19,12 @@ type Events struct {
 	OnKnockback func(vx, vy, vz float64)
 	// OnExplosion fires for every explosion the server reports.
 	OnExplosion func(x, y, z float64, radius float32)
+
+	// OnReconfigure fires when the server takes the bot back to the
+	// configuration phase, which proxies (Velocity, BungeeCord) do when
+	// switching backend servers. OnSpawn fires again once the bot is in
+	// the new world.
+	OnReconfigure func()
 }
 
 func (e *Events) emit(name string, args ...any) {
@@ -66,6 +72,10 @@ func (e *Events) emit(name string, args ...any) {
 	case "explosion":
 		if e.OnExplosion != nil && len(args) >= 4 {
 			e.OnExplosion(args[0].(float64), args[1].(float64), args[2].(float64), args[3].(float32))
+		}
+	case "reconfigure":
+		if e.OnReconfigure != nil {
+			e.OnReconfigure()
 		}
 	case "path_failed":
 		if e.OnPathFailed != nil && len(args) >= 1 {

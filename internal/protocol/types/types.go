@@ -20,6 +20,11 @@ type PacketIDs struct {
 	CB_Disconnect     int32
 	CB_SetCompression int32
 
+	CB_LoginPluginRequest   int32
+	SB_LoginPluginResponse  int32
+	CB_CookieRequest_Login  int32
+	SB_CookieResponse_Login int32
+
 	// — Configuration —
 	SB_KnownPacks     int32
 	SB_FinishConfig   int32
@@ -29,6 +34,16 @@ type PacketIDs struct {
 	CB_FinishConfig   int32
 	CB_PluginRequest  int32
 	CB_FeatureFlags   int32
+
+	SB_ClientInformation_Config int32
+	CB_Ping_Config              int32
+	SB_Pong_Config              int32
+	CB_ResourcePackPush_Config  int32
+	SB_ResourcePack_Config      int32
+	CB_CookieRequest_Config     int32
+	SB_CookieResponse_Config    int32
+	CB_CodeOfConduct            int32
+	SB_AcceptCodeOfConduct      int32
 
 	// — Play (Serverbound) —
 	SB_AcceptTeleport         int32
@@ -48,6 +63,10 @@ type PacketIDs struct {
 	SB_ChunkBatchReceived     int32
 	SB_PlayerLoaded           int32
 	SB_UseItem                int32
+	SB_ConfigurationAck       int32
+	SB_Pong                   int32
+	SB_ResourcePack           int32
+	SB_CookieResponse         int32
 
 	// — Play (Clientbound) —
 	CB_ChunkBatchFinished      int32
@@ -73,6 +92,10 @@ type PacketIDs struct {
 	CB_CombatDeath             int32
 	CB_SetEntityMotion         int32
 	CB_Explode                 int32
+	CB_StartConfiguration      int32
+	CB_Ping                    int32
+	CB_ResourcePackPush        int32
+	CB_CookieRequest           int32
 }
 
 type VersionInfo struct {
@@ -83,6 +106,10 @@ type VersionInfo struct {
 	// BlockClasses holds one physics/pathfinding class per block state ID
 	// (generated, see internal/tools/genblocks).
 	BlockClasses string
+
+	// BlockShapes holds the collision boxes of every block state, encoded
+	// by internal/tools/genblocks.
+	BlockShapes string
 
 	// SectionFluidCount: chunk sections carry a fluid count (Short) after
 	// the non-empty block count (26.1+).

@@ -109,6 +109,27 @@ func (b *Bot) HandleGame() error {
 				// non-fatal
 			}
 
+		case b.version.IDs.CB_StartConfiguration:
+			if err := b.startConfiguration(); err != nil {
+				return fmt.Errorf("reconfiguration: %w", err)
+			}
+
+		case b.version.IDs.CB_Ping:
+			var id pk.Int
+			if err := p.Scan(&id); err == nil {
+				b.writePacket(pk.Marshal(pk.VarInt(b.version.IDs.SB_Pong), id))
+			}
+
+		case b.version.IDs.CB_ResourcePackPush:
+			if err := b.answerResourcePack(p, b.version.IDs.SB_ResourcePack, b.writePacket); err != nil {
+				return err
+			}
+
+		case b.version.IDs.CB_CookieRequest:
+			if err := b.answerCookieRequest(p, b.version.IDs.SB_CookieResponse, b.writePacket); err != nil {
+				return err
+			}
+
 		case b.version.IDs.CB_Disconnect_Play:
 			reason := readDisconnectReason(p)
 			b.Events.emit("disconnect", reason)

@@ -13,6 +13,7 @@
 //	!sneak on|off      toggle sneak (other players should see crouching)
 //	!jump              jump once
 //	!forward SECONDS   walk forward for N seconds
+//	!view CHUNKS       change the view distance (2..32)
 //
 // The bot respawns automatically 1 second after dying.
 package main
@@ -34,6 +35,7 @@ func main() {
 	addr := flag.String("addr", "localhost:25565", "server address (offline mode)")
 	version := flag.String("version", bot.LatestVersion, "Minecraft version of the server (see bot.SupportedVersions)")
 	name := flag.String("name", "TestBot", "bot username")
+	view := flag.Int("view", bot.DefaultViewDistance, "view distance in chunks (2..32)")
 	flag.Parse()
 
 	ver, err := bot.ResolveVersion(*version)
@@ -42,6 +44,9 @@ func main() {
 	}
 
 	b := bot.New(*name, ver)
+	if err := b.SetViewDistance(*view); err != nil {
+		log.Fatal(err)
+	}
 	spawns := 0
 
 	b.Events.OnSpawn = func() {
@@ -75,6 +80,9 @@ func main() {
 	b.Events.OnExplosion = func(x, y, z float64, radius float32) {
 		log.Printf("[explosion] at %.1f %.1f %.1f radius %.1f", x, y, z, radius)
 	}
+	b.Events.OnReconfigure = func() {
+		log.Println("[proxy] server switch: reconfiguring")
+	}
 	b.Events.OnDisconnect = func(reason string) {
 		log.Printf("[disconnect] %s", reason)
 	}
@@ -103,8 +111,8 @@ func handleCommand(b *bot.Bot, args []string) {
 	case "!pos":
 		x, y, z := b.GetPosition()
 		hp, food := b.GetHealth()
-		b.Chat(fmt.Sprintf("pos %.2f %.2f %.2f | hp %.0f food %.0f | ground %v",
-			x, y, z, hp, food, b.IsOnGround()))
+		b.Chat(fmt.Sprintf("pos %.2f %.2f %.2f | hp %.0f food %.0f | ground %v water %v ladder %v",
+			x, y, z, hp, food, b.IsOnGround(), b.IsInWater(), b.IsOnClimbable()))
 
 	case "!goto", "!walk":
 		if len(args) != 4 {
@@ -155,7 +163,22 @@ func handleCommand(b *bot.Bot, args []string) {
 		time.Sleep(time.Duration(secs * float64(time.Second)))
 		b.SetControlState("forward", false)
 
+	case "!view":
+		if len(args) != 2 {
+			b.Chat("usage: !view CHUNKS")
+			return
+		}
+		n, err := strconv.Atoi(args[1])
+		if err == nil {
+			err = b.SetViewDistance(n)
+		}
+		if err != nil {
+			b.Chat("view: " + err.Error())
+			return
+		}
+		b.Chat(fmt.Sprintf("view distance %d", n))
+
 	default:
-		b.Chat("commands: !pos !goto !walk !stop !sprint !sneak !jump !forward")
+		b.Chat("commands: !pos !goto !walk !stop !sprint !sneak !jump !forward !view")
 	}
 }
