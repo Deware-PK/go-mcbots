@@ -16,16 +16,16 @@ var (
 
 // WorldView provides read-only access to the world for the pathfinder.
 type WorldView interface {
-	GetBlock(x, y, z int) uint32
 	HasChunk(x, z int) bool
-	IsBlockSolid(x, y, z int) bool
-	IsPassable(x, y, z int) bool
 	IsWater(x, y, z int) bool
 	IsClimbable(x, y, z int) bool
 	IsDangerous(x, y, z int) bool
-	CanStandAt(x, y, z int) bool
-	CanStandInWater(x, y, z int) bool
-	IsSafeToFall(x, startY, z, maxDrop int) int
+	// StandHeight returns the feet height when standing centered in block
+	// column (x, z) with the feet in block y, and whether the player fits.
+	StandHeight(x, y, z int) (float64, bool)
+	// ColumnFree reports whether the centered player column of (x, z) is
+	// clear of collisions between heights y0 and y1.
+	ColumnFree(x, z int, y0, y1 float64) bool
 }
 
 // FindPath computes an A* path from start to goal.

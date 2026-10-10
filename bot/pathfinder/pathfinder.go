@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strings"
 	"sync"
 )
 
@@ -50,6 +51,9 @@ func (p *Pathfinder) SetOptions(opts Options) {
 // maxReplans bounds how many times GoTo re-plans after following a partial
 // path (goal too far for one search, or unreachable).
 const maxReplans = 10
+
+// maxStuckReplans bounds re-planning after the bot got stuck on a path.
+const maxStuckReplans = 2
 
 // GoTo computes a path to the target and begins following it.
 // The A* computation runs in a goroutine to avoid blocking the physics loop.
@@ -107,17 +111,17 @@ func (p *Pathfinder) plan(gen uint64, x, y, z float64, sprint bool, replans int)
 		Z: int(math.Floor(z)),
 	}
 
-	// Auto-correct Y if feet are inside ground (float rounding: 82.999 → 82)
-	if !world.CanStandAt(start.X, start.Y, start.Z) {
-		if world.CanStandAt(start.X, start.Y+1, start.Z) {
+	// Feet rounding (82.999 -> 82) can put the start inside the floor.
+	if footingAt(world, start, opts).kind == footNone {
+		if footingAt(world, start.Add(0, 1, 0), opts).kind != footNone {
 			start.Y++
 		}
 	}
 	// The goal Y is often typed by hand (F3 coordinates, the block looked
-	// at, a slab or carpet): snap to the nearest standable Y nearby.
-	if !world.CanStandAt(goal.X, goal.Y, goal.Z) {
+	// at, a slab or carpet): snap to the nearest valid Y nearby.
+	if footingAt(world, goal, opts).kind == footNone {
 		for _, dy := range []int{1, -1, 2, -2, -3} {
-			if world.CanStandAt(goal.X, goal.Y+dy, goal.Z) {
+			if footingAt(world, goal.Add(0, dy, 0), opts).kind != footNone {
 				goal.Y += dy
 				break
 			}
@@ -142,7 +146,7 @@ func (p *Pathfinder) plan(gen uint64, x, y, z float64, sprint bool, replans int)
 		switch {
 		case err == nil:
 			log.Printf("[Pathfinder] Path found: %d nodes", len(path))
-			p.follow(gen, path, sprint, onReached, onFailed)
+			p.follow(gen, path, sprint, onReached, p.retryWhenStuck(gen, x, y, z, sprint, replans, onFailed))
 
 		case (errors.Is(err, ErrNoPath) || errors.Is(err, ErrMaxIterations)) &&
 			len(path) > 1 && replans < maxReplans:
@@ -157,7 +161,7 @@ func (p *Pathfinder) plan(gen uint64, x, y, z float64, sprint bool, replans int)
 			// is unreachable the next search finds no closer node and fails.
 			p.follow(gen, path, sprint, func() {
 				p.plan(gen, x, y, z, sprint, replans+1)
-			}, onFailed)
+			}, p.retryWhenStuck(gen, x, y, z, sprint, replans, onFailed))
 
 		case errors.Is(err, ErrNoPath) || errors.Is(err, ErrMaxIterations):
 			if replans > 0 {
@@ -171,6 +175,22 @@ func (p *Pathfinder) plan(gen uint64, x, y, z float64, sprint bool, replans int)
 			fail(fmt.Sprintf("pathfinding failed: %v", err))
 		}
 	}()
+}
+
+// retryWhenStuck wraps onFailed: when the follower gets stuck, plan again
+// from where the bot is (the world or the bot's position may differ from
+// what the path assumed) before giving up.
+func (p *Pathfinder) retryWhenStuck(gen uint64, x, y, z float64, sprint bool, replans int, onFailed func(string)) func(string) {
+	return func(reason string) {
+		if strings.HasPrefix(reason, "stuck") && replans < maxStuckReplans && p.isCurrent(gen) {
+			log.Printf("[Pathfinder] %s; re-planning", reason)
+			p.plan(gen, x, y, z, sprint, replans+1)
+			return
+		}
+		if onFailed != nil {
+			onFailed(reason)
+		}
+	}
 }
 
 // follow installs a follower for path if gen is still current.

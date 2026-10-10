@@ -2,40 +2,58 @@ package pathfinder
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
 )
 
-// fakeWorld is a set of solid blocks; everything else is air. Chunks are
-// loaded unless listed in unloaded (by block X/Z).
+// box is a collision box in block-local coordinates.
+type box struct{ minX, minY, minZ, maxX, maxY, maxZ float64 }
+
+type fakeBlock struct {
+	boxes  []box
+	water  bool
+	climb  bool
+	danger bool
+}
+
+var (
+	fullBlock  = fakeBlock{boxes: []box{{0, 0, 0, 1, 1, 1}}}
+	waterBlock = fakeBlock{water: true}
+	slabBlock  = fakeBlock{boxes: []box{{0, 0, 0, 1, 0.5, 1}}}
+	fenceBlock = fakeBlock{boxes: []box{{0.375, 0, 0.375, 0.625, 1.5, 0.625}}}
+	// ladder on the +X face of its block
+	ladderBlock = fakeBlock{boxes: []box{{0.8125, 0, 0, 1, 1, 1}}, climb: true}
+	lavaBlock   = fakeBlock{danger: true}
+)
+
+// fakeWorld is a map of blocks; everything else is air. Chunks are loaded
+// unless listed in unloaded (by block X/Z).
 type fakeWorld struct {
-	solid    map[Vec3]bool
+	blocks   map[Vec3]fakeBlock
 	unloaded map[[2]int]bool
 	// gate, if set, blocks HasChunk until it is closed.
 	gate chan struct{}
 }
 
 func newFakeWorld() *fakeWorld {
-	return &fakeWorld{solid: map[Vec3]bool{}, unloaded: map[[2]int]bool{}}
+	return &fakeWorld{blocks: map[Vec3]fakeBlock{}, unloaded: map[[2]int]bool{}}
 }
 
-func (w *fakeWorld) fill(x0, y0, z0, x1, y1, z1 int) *fakeWorld {
+func (w *fakeWorld) fillWith(b fakeBlock, x0, y0, z0, x1, y1, z1 int) *fakeWorld {
 	for x := x0; x <= x1; x++ {
 		for y := y0; y <= y1; y++ {
 			for z := z0; z <= z1; z++ {
-				w.solid[Vec3{x, y, z}] = true
+				w.blocks[Vec3{x, y, z}] = b
 			}
 		}
 	}
 	return w
 }
 
-func (w *fakeWorld) GetBlock(x, y, z int) uint32 {
-	if w.solid[Vec3{x, y, z}] {
-		return 1
-	}
-	return 0
+func (w *fakeWorld) fill(x0, y0, z0, x1, y1, z1 int) *fakeWorld {
+	return w.fillWith(fullBlock, x0, y0, z0, x1, y1, z1)
 }
 
 func (w *fakeWorld) HasChunk(x, z int) bool {
@@ -45,28 +63,59 @@ func (w *fakeWorld) HasChunk(x, z int) bool {
 	return !w.unloaded[[2]int{x, z}]
 }
 
-func (w *fakeWorld) IsBlockSolid(x, y, z int) bool    { return w.solid[Vec3{x, y, z}] }
-func (w *fakeWorld) IsPassable(x, y, z int) bool      { return !w.solid[Vec3{x, y, z}] }
-func (w *fakeWorld) IsWater(x, y, z int) bool         { return false }
-func (w *fakeWorld) IsClimbable(x, y, z int) bool     { return false }
-func (w *fakeWorld) IsDangerous(x, y, z int) bool     { return false }
-func (w *fakeWorld) CanStandInWater(x, y, z int) bool { return false }
+func (w *fakeWorld) IsWater(x, y, z int) bool     { return w.blocks[Vec3{x, y, z}].water }
+func (w *fakeWorld) IsClimbable(x, y, z int) bool { return w.blocks[Vec3{x, y, z}].climb }
+func (w *fakeWorld) IsDangerous(x, y, z int) bool { return w.blocks[Vec3{x, y, z}].danger }
 
-func (w *fakeWorld) CanStandAt(x, y, z int) bool {
-	return w.IsBlockSolid(x, y-1, z) && w.IsPassable(x, y, z) && w.IsPassable(x, y+1, z)
-}
-
-func (w *fakeWorld) IsSafeToFall(x, startY, z, maxDrop int) int {
-	for dy := 1; dy <= maxDrop; dy++ {
-		if w.IsBlockSolid(x, startY-dy, z) {
-			land := startY - dy + 1
-			if w.IsPassable(x, land, z) && w.IsPassable(x, land+1, z) {
-				return land
-			}
-			return -1
+// topInColumn is the highest box top of block p inside the centered
+// player column (x+0.2..x+0.8), relative to the block.
+func (w *fakeWorld) topInColumn(p Vec3) (float64, bool) {
+	top, ok := 0.0, false
+	for _, b := range w.blocks[p].boxes {
+		if b.maxX > 0.2 && b.minX < 0.8 && b.maxZ > 0.2 && b.minZ < 0.8 && (!ok || b.maxY > top) {
+			top, ok = b.maxY, true
 		}
 	}
-	return -1
+	return top, ok
+}
+
+func (w *fakeWorld) StandHeight(x, y, z int) (float64, bool) {
+	if w.unloaded[[2]int{x, z}] {
+		return 0, false
+	}
+	var feet float64
+	if t, ok := w.topInColumn(Vec3{x, y, z}); ok {
+		if t >= 1 {
+			return 0, false
+		}
+		feet = float64(y) + t
+	} else {
+		t, ok := w.topInColumn(Vec3{x, y - 1, z})
+		if !ok || t < 1 {
+			return 0, false
+		}
+		feet = float64(y-1) + t
+	}
+	if !w.ColumnFree(x, z, feet, feet+1.8) {
+		return 0, false
+	}
+	return feet, true
+}
+
+func (w *fakeWorld) ColumnFree(x, z int, y0, y1 float64) bool {
+	if w.unloaded[[2]int{x, z}] {
+		return false
+	}
+	const e = 1e-7
+	for y := int(math.Floor(y0)) - 1; y <= int(math.Floor(y1)); y++ {
+		for _, b := range w.blocks[Vec3{x, y, z}].boxes {
+			if b.maxX > 0.2 && b.minX < 0.8 && b.maxZ > 0.2 && b.minZ < 0.8 &&
+				float64(y)+b.maxY > y0+e && float64(y)+b.minY < y1-e {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // flat returns a world with a floor at y=63 over x,z in [-10, 10].
@@ -85,8 +134,8 @@ func mustFind(t *testing.T, w WorldView, start, goal Vec3) []Node {
 		if n.Depth != i {
 			t.Fatalf("node %d has Depth %d", i, n.Depth)
 		}
-		if !w.CanStandAt(n.Pos.X, n.Pos.Y, n.Pos.Z) {
-			t.Fatalf("node %d at %v is not standable", i, n.Pos)
+		if footingAt(w, n.Pos, DefaultOptions()).kind == footNone {
+			t.Fatalf("node %d at %v is not a valid position", i, n.Pos)
 		}
 	}
 	return path
@@ -156,8 +205,8 @@ func TestFindPathNoPath(t *testing.T) {
 	w := flat().
 		fill(4, 64, -1, 6, 66, 1). // solid box...
 		fill(4, 67, -1, 6, 67, 1)
-	delete(w.solid, Vec3{5, 64, 0}) // ...with a 2-high hole inside
-	delete(w.solid, Vec3{5, 65, 0})
+	delete(w.blocks, Vec3{5, 64, 0}) // ...with a 2-high hole inside
+	delete(w.blocks, Vec3{5, 65, 0})
 
 	_, err := FindPath(Vec3{0, 64, 0}, Vec3{5, 64, 0}, w, DefaultOptions())
 	if !errors.Is(err, ErrNoPath) {
@@ -181,11 +230,13 @@ func TestFindPathUnloaded(t *testing.T) {
 		t.Fatalf("unloaded start: err = %v, want ErrUnloaded", err)
 	}
 
-	// An unloaded goal chunk is fine: the search heads toward it.
+	// An unloaded goal chunk is fine: the search heads toward it and
+	// returns a partial path to re-plan from once the chunk arrives.
 	w = flat()
 	w.unloaded[[2]int{5, 0}] = true
-	if _, err := FindPath(Vec3{0, 64, 0}, Vec3{5, 64, 0}, w, DefaultOptions()); err != nil {
-		t.Fatalf("unloaded goal: err = %v, want a path", err)
+	path, err := FindPath(Vec3{0, 64, 0}, Vec3{5, 64, 0}, w, DefaultOptions())
+	if !errors.Is(err, ErrNoPath) || len(path) < 2 || path[len(path)-1].Pos.DistanceTo(Vec3{5, 64, 0}) > 1.5 {
+		t.Fatalf("unloaded goal: err = %v, path %v; want a partial path next to the goal", err, path)
 	}
 }
 
@@ -229,6 +280,9 @@ func (b *fakeBot) SetControlState(string, bool)   {}
 func (b *fakeBot) ClearControlStates()            {}
 func (b *fakeBot) LookAt(x, y, z float64) error   { return nil }
 func (b *fakeBot) IsOnGround() bool               { return true }
+func (b *fakeBot) IsInWater() bool                { return false }
+func (b *fakeBot) IsOnClimbable() bool            { return false }
+func (b *fakeBot) IsCollidedHorizontally() bool   { return false }
 
 func TestGoToStopDiscardsPendingSearch(t *testing.T) {
 	w := flat()

@@ -9,9 +9,13 @@ Spin up one bot or hundreds from a single binary — no Node.js, no heavy runtim
 - **Automation & experiments** — build your own headless bots in plain Go
 
 **Features**
-- Connect to Minecraft Java Edition servers (offline mode)
+- Connect to Minecraft Java Edition servers (offline mode), directly or through
+  Velocity / BungeeCord proxies (server switches are followed)
+- Client settings (view distance, locale, skin parts, ...) like a real client
 - Event hooks: spawn, chat, system messages, health, death, disconnect, pathfinding
-- Movement controls, physics and A* pathfinding (`GoTo`)
+- Vanilla movement physics: real block collision shapes (slabs, stairs, fences),
+  step-up, swimming, ladders and vines
+- A* pathfinding (`GoTo`) that walks stairs and slabs, swims and climbs ladders
 - `swarm` package to run many bots at once
 
 ## Install
@@ -47,6 +51,23 @@ Full version with flags and Ctrl-C handling: [examples/hello](examples/hello/mai
 ```bash
 go run ./examples/hello -addr localhost:25565 -name GoBot
 ```
+
+## Client settings and proxies
+
+The bot sends its client settings when it joins, like a real client. The
+server sends chunks within the bot's view distance (capped by the server's
+own `view-distance`), so it decides both how much load a bot puts on chunk
+sending and how much memory the bot uses:
+
+```go
+b := bot.New("GoBot", ver)
+b.SetViewDistance(10) // default 2 (what servers assume without settings)
+// or everything at once: b.SetClientSettings(bot.ClientSettings{...})
+```
+
+Behind a Velocity or BungeeCord proxy, a server switch (`/server lobby`)
+sends the bot back to the configuration phase; it follows automatically,
+fires `Events.OnReconfigure`, and `Events.OnSpawn` again in the new server.
 
 ## Swarm
 
@@ -91,6 +112,10 @@ go run ./internal/tools/genblocks -mojang gen/reports/blocks.json \
     -data <minecraft-data>/data/pc/26.1 -mdversion 26.1 -version 26.2 \
     -out internal/protocol/versions/v776/blocks.go -pkg v776
 ```
+
+`genblocks` also embeds every block state's collision shape (from
+PrismarineJS/minecraft-data; new blocks borrow the shape of a vanilla block
+of the same Mojang block type).
 
 Packet *layouts* still need checking against the server classes (26.x jars
 are not obfuscated, so `javap -p -c` on the packet classes is enough).
