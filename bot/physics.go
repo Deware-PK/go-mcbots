@@ -41,6 +41,10 @@ type Physics struct {
 	// Velocity from the server (knockback), applied at the start of the next
 	// tick so it is not lost to the tick's own velocity write.
 	motion pendingMotion
+
+	// contact holds the last tick's result: collision, water and ladder
+	// flags and the jump cooldown (position and velocity live in State).
+	contact body
 }
 
 // pendingMotion accumulates server velocity changes between ticks, in
@@ -171,6 +175,14 @@ func (p *Physics) GetControlState(control string) bool {
 	return false
 }
 
+// resetControls releases all controls without telling the server, for when
+// the server state is reset anyway (configuration phase).
+func (p *Physics) resetControls() {
+	p.mu.Lock()
+	p.control = ControlState{}
+	p.mu.Unlock()
+}
+
 func (p *Physics) ClearControlStates() {
 	p.mu.Lock()
 	old := p.control
@@ -229,15 +241,29 @@ func (p *Physics) simulatePlayer() {
 	vx, vy, vz := p.applyMotion(p.bot.state.GetVelocity())
 	yaw, _ := p.bot.state.GetRotation()
 
-	next := stepPhysics(p.bot.world, body{
-		X: x, Y: y, Z: z,
-		VX: vx, VY: vy, VZ: vz,
-		OnGround: p.bot.state.IsOnGround(),
-	}, ctrl, yaw)
+	p.mu.RLock()
+	prev := p.contact
+	p.mu.RUnlock()
+
+	cur := prev
+	cur.X, cur.Y, cur.Z = x, y, z
+	cur.VX, cur.VY, cur.VZ = vx, vy, vz
+	cur.OnGround = p.bot.state.IsOnGround()
+	next := stepPhysics(p.bot.world, cur, ctrl, yaw)
 
 	p.bot.state.SetPosition(next.X, next.Y, next.Z)
 	p.bot.state.SetVelocity(next.VX, next.VY, next.VZ)
 	p.bot.state.SetOnGround(next.OnGround)
+	p.mu.Lock()
+	p.contact = next
+	p.mu.Unlock()
+}
+
+// contactState returns the collision/fluid flags of the last physics tick.
+func (p *Physics) contactState() body {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.contact
 }
 
 func (p *Physics) updatePosition() {

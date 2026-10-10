@@ -13,5 +13,6 @@ var Info = types.VersionInfo{
 	ProtocolNumber:    776,
 	IDs:               IDs,
 	BlockClasses:      BlockClasses,
+	BlockShapes:       BlockShapes,
 	SectionFluidCount: true,
 }

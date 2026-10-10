@@ -16,20 +16,56 @@ const (
 	defaultSlip      = 0.6  // block slipperiness of almost every block
 	groundAccelConst = 0.16277136
 	minVelocity      = 0.003 // vanilla zeroes tiny velocities
+	jumpDelayTicks   = 10    // ticks between jumps while jump is held
+
+	// StepHeight is how high the player walks up without jumping
+	// (slabs, stairs, carpets): the step_height attribute.
+	StepHeight = 0.6
+
+	// Water (LivingEntity.travelInFluid, Entity.updateFluidHeightAndDoFluidPushing).
+	waterSlowdown       = 0.8   // horizontal drag in water
+	waterSlowdownSprint = 0.9   // ...while sprint-swimming
+	waterAccel          = 0.02  // input acceleration in water
+	waterVerticalDrag   = 0.8   // vertical drag in water
+	waterGravity        = 0.005 // gravity / 16
+	waterSwimUp         = 0.04  // jump held in water (jumpInLiquid)
+	waterSinkDown       = 0.04  // sneak held in water (goDownInWater)
+	waterJumpThreshold  = 0.4   // standing in water shallower than this jumps normally
+	waterClimbOutBoost  = 0.3   // vertical speed when swimming against a ledge
+	sourceWaterHeight   = 8.0 / 9.0
+
+	// Ladders and vines (LivingEntity.handleOnClimbable).
+	climbMaxHorizontal = 0.15
+	climbMaxFall       = 0.15
+	climbUpSpeed       = 0.2
 
 	collisionEpsilon = 1e-7
 )
 
 // collider is the part of the world the physics step needs.
 type collider interface {
-	IsBlockSolidOrUnloaded(x, y, z int) bool
+	// appendBoxes appends the collision boxes of block (x, y, z) in world
+	// coordinates. Blocks in unloaded chunks are full cubes, so the bot
+	// does not fall out of the world before its chunks arrive.
+	appendBoxes(dst []aabb, x, y, z int) []aabb
+	// waterHeight is the water surface height inside block (x, y, z),
+	// 0 if there is no water.
+	waterHeight(x, y, z int) float64
+	// climbable reports ladders, vines and other climbable blocks.
+	climbable(x, y, z int) bool
 }
 
-// body is the simulated player: feet position, velocity and ground contact.
+// body is the simulated player: feet position, velocity and contact state.
 type body struct {
 	X, Y, Z    float64
 	VX, VY, VZ float64
 	OnGround   bool
+
+	// Results of the last tick, used by the next one and by the pathfinder.
+	HorizontalCollision bool
+	InWater             bool
+	OnClimbable         bool
+	JumpDelay           int
 }
 
 type aabb struct {
@@ -37,19 +73,58 @@ type aabb struct {
 	maxX, maxY, maxZ float64
 }
 
+// The player box exactly as the server builds it: vanilla stores entity
+// dimensions as float32 (0.6f, 1.8f), so the half width is 0.30000001192.
+// Using 0.3 leaves the bot ~1e-8 inside a wall it walks into, and Paper
+// then rejects the move ("clipped into block") and teleports the bot back.
+var (
+	playerHalfWidth = float64(float32(PlayerWidth) / 2)
+	playerBoxHeight = float64(float32(PlayerHeight))
+)
+
 func playerBox(x, y, z float64) aabb {
-	h := PlayerWidth / 2
-	return aabb{x - h, y, z - h, x + h, y + PlayerHeight, z + h}
+	h := playerHalfWidth
+	return aabb{x - h, y, z - h, x + h, y + playerBoxHeight, z + h}
 }
 
 func (a aabb) offset(dx, dy, dz float64) aabb {
 	return aabb{a.minX + dx, a.minY + dy, a.minZ + dz, a.maxX + dx, a.maxY + dy, a.maxZ + dz}
 }
 
-// stepPhysics advances the player by one tick (50 ms).
-//
-// Order follows vanilla: apply input and jump, move with collisions, then
-// apply gravity and drag to the velocity used next tick.
+// expandTowards grows the box in the direction of (dx, dy, dz).
+func (a aabb) expandTowards(dx, dy, dz float64) aabb {
+	if dx < 0 {
+		a.minX += dx
+	} else {
+		a.maxX += dx
+	}
+	if dy < 0 {
+		a.minY += dy
+	} else {
+		a.maxY += dy
+	}
+	if dz < 0 {
+		a.minZ += dz
+	} else {
+		a.maxZ += dz
+	}
+	return a
+}
+
+func (a aabb) deflate(d float64) aabb {
+	return aabb{a.minX + d, a.minY + d, a.minZ + d, a.maxX - d, a.maxY - d, a.maxZ - d}
+}
+
+func (a aabb) intersects(b aabb) bool {
+	return a.minX < b.maxX && a.maxX > b.minX &&
+		a.minY < b.maxY && a.maxY > b.minY &&
+		a.minZ < b.maxZ && a.maxZ > b.minZ
+}
+
+// stepPhysics advances the player by one tick (50 ms), following vanilla
+// LivingEntity.aiStep/travel: input and jumping, movement with collisions
+// (including stepping up 0.6 blocks), then gravity and drag for the next
+// tick. Water and climbable blocks use their own movement rules.
 func stepPhysics(w collider, b body, ctrl ControlState, yaw float32) body {
 	moveX, moveZ := inputVector(ctrl, yaw)
 
@@ -57,21 +132,51 @@ func stepPhysics(w collider, b body, ctrl ControlState, yaw float32) body {
 	if math.Abs(b.VX) < minVelocity {
 		b.VX = 0
 	}
+	if math.Abs(b.VY) < minVelocity {
+		b.VY = 0
+	}
 	if math.Abs(b.VZ) < minVelocity {
 		b.VZ = 0
 	}
 
-	wasOnGround := b.OnGround
+	// Fluid state at the start of the tick (Entity.baseTick).
+	inWater, waterDepth := waterState(w, playerBox(b.X, b.Y, b.Z))
+	b.InWater = inWater
 
-	// Jump: vertical impulse, plus a forward boost when sprinting.
-	if wasOnGround && ctrl.Jump {
-		b.VY = jumpVelocity
-		if ctrl.Sprint {
-			yawRad := float64(yaw) * math.Pi / 180.0
-			b.VX -= math.Sin(yawRad) * sprintJumpBoost
-			b.VZ += math.Cos(yawRad) * sprintJumpBoost
-		}
+	// Jumping and swimming up/down (LivingEntity.aiStep).
+	if b.JumpDelay > 0 {
+		b.JumpDelay--
 	}
+	if ctrl.Jump {
+		switch {
+		case inWater && !(b.OnGround && waterDepth <= waterJumpThreshold):
+			b.VY += waterSwimUp // swim up
+		case b.OnGround && b.JumpDelay == 0:
+			b.VY = math.Max(jumpVelocity, b.VY)
+			if ctrl.Sprint {
+				yawRad := float64(yaw) * math.Pi / 180.0
+				b.VX -= math.Sin(yawRad) * sprintJumpBoost
+				b.VZ += math.Cos(yawRad) * sprintJumpBoost
+			}
+			b.JumpDelay = jumpDelayTicks
+		}
+	} else {
+		b.JumpDelay = 0
+	}
+	if inWater && ctrl.Sneak {
+		b.VY -= waterSinkDown
+	}
+
+	if inWater {
+		return travelInWater(w, b, ctrl, moveX, moveZ)
+	}
+	return travelInAir(w, b, ctrl, moveX, moveZ)
+}
+
+// travelInAir is vanilla LivingEntity.travelInAir: walking, falling, and
+// climbing ladders.
+func travelInAir(w collider, b body, ctrl ControlState, moveX, moveZ float64) body {
+	wasOnGround := b.OnGround
 
 	// Friction for this tick depends on whether we started it on the ground.
 	friction := airFriction
@@ -92,21 +197,20 @@ func stepPhysics(w collider, b body, ctrl ControlState, yaw float32) body {
 	b.VX += moveX * accel
 	b.VZ += moveZ * accel
 
-	dx, dy, dz := moveWithCollisions(w, playerBox(b.X, b.Y, b.Z), b.VX, b.VY, b.VZ)
-	b.X += dx
-	b.Y += dy
-	b.Z += dz
+	if onClimbable(w, b) {
+		b.VX = clamp(b.VX, -climbMaxHorizontal, climbMaxHorizontal)
+		b.VZ = clamp(b.VZ, -climbMaxHorizontal, climbMaxHorizontal)
+		b.VY = math.Max(b.VY, -climbMaxFall)
+		if b.VY < 0 && ctrl.Sneak {
+			b.VY = 0 // sneaking holds the player on the ladder
+		}
+	}
 
-	verticalHit := dy != b.VY
-	b.OnGround = verticalHit && b.VY < 0
-	if verticalHit {
-		b.VY = 0 // landed, or head hit a ceiling
-	}
-	if dx != b.VX {
-		b.VX = 0
-	}
-	if dz != b.VZ {
-		b.VZ = 0
+	b = move(w, b)
+
+	b.OnClimbable = onClimbable(w, b)
+	if (b.HorizontalCollision || ctrl.Jump) && b.OnClimbable {
+		b.VY = climbUpSpeed
 	}
 
 	b.VY = (b.VY - Gravity) * 0.98
@@ -116,6 +220,239 @@ func stepPhysics(w collider, b body, ctrl ControlState, yaw float32) body {
 	b.VX *= friction
 	b.VZ *= friction
 	return b
+}
+
+// travelInWater is vanilla LivingEntity.travelInFluid for water.
+func travelInWater(w collider, b body, ctrl ControlState, moveX, moveZ float64) body {
+	startY := b.Y
+	falling := b.VY <= 0
+	drag := waterSlowdown
+	if ctrl.Sprint {
+		drag = waterSlowdownSprint
+	}
+	b.VX += moveX * waterAccel
+	b.VZ += moveZ * waterAccel
+
+	b = move(w, b)
+
+	b.OnClimbable = onClimbable(w, b)
+	if b.HorizontalCollision && b.OnClimbable {
+		b.VY = climbUpSpeed
+	}
+	b.VX *= drag
+	b.VY *= waterVerticalDrag
+	b.VZ *= drag
+
+	// Entity.getFluidFallingAdjustedMovement.
+	if !ctrl.Sprint {
+		if falling && math.Abs(b.VY-0.005) >= 0.003 && math.Abs(b.VY-Gravity/16) < 0.003 {
+			b.VY = -0.003
+		} else {
+			b.VY -= waterGravity
+		}
+	}
+
+	// Swimming against a ledge: jump out if the space 0.6 above is free.
+	if b.HorizontalCollision {
+		up := b.VY + 0.6 - b.Y + startY
+		if isFree(w, playerBox(b.X, b.Y, b.Z).offset(b.VX, up, b.VZ)) {
+			b.VY = waterClimbOutBoost
+		}
+	}
+	return b
+}
+
+// move is vanilla Entity.move for the player: collide the velocity with the
+// world (stepping up to StepHeight when on the ground), move, then zero the
+// velocity on each axis that hit something.
+func move(w collider, b body) body {
+	box := playerBox(b.X, b.Y, b.Z)
+	dx, dy, dz := collide(w, box, b.VX, b.VY, b.VZ, b.OnGround)
+
+	collX := dx != b.VX
+	collY := dy != b.VY
+	collZ := dz != b.VZ
+
+	b.X += dx
+	b.Y += dy
+	b.Z += dz
+	b.HorizontalCollision = collX || collZ
+	b.OnGround = collY && b.VY < 0
+	if collX {
+		b.VX = 0
+	}
+	if collY {
+		b.VY = 0 // landed, or head hit a ceiling
+	}
+	if collZ {
+		b.VZ = 0
+	}
+	return b
+}
+
+// collide is vanilla Entity.collide: clip the movement against the world,
+// and if a horizontal move is blocked while on the ground, try stepping up
+// onto the obstacle (up to StepHeight) and keep whichever goes farther.
+func collide(w collider, box aabb, dx, dy, dz float64, onGround bool) (float64, float64, float64) {
+	blocks := boxesIn(w, nil, box.expandTowards(dx, dy, dz))
+	vx, vy, vz := collideWithBoxes(blocks, box, dx, dy, dz)
+
+	collX, collY, collZ := vx != dx, vy != dy, vz != dz
+	landed := collY && dy < 0
+	if !(landed || onGround) || !(collX || collZ) {
+		return vx, vy, vz
+	}
+
+	base := box
+	if landed {
+		base = box.offset(0, vy, 0)
+	}
+	region := base.expandTowards(dx, StepHeight, dz)
+	if !landed {
+		region = region.expandTowards(0, -1e-5, 0)
+	}
+	stepBlocks := boxesIn(w, nil, region)
+	for _, h := range stepUpHeights(base, stepBlocks, float32(vy)) {
+		sx, sy, sz := collideWithBoxes(stepBlocks, base, dx, float64(h), dz)
+		if sx*sx+sz*sz > vx*vx+vz*vz {
+			return sx, sy + (base.minY - box.minY), sz
+		}
+	}
+	return vx, vy, vz
+}
+
+// stepUpHeights is vanilla Entity.collectCandidateStepUpHeights: the heights
+// of box tops and bottoms within StepHeight above the box, ascending.
+func stepUpHeights(box aabb, blocks []aabb, skip float32) []float32 {
+	var hs []float32
+	add := func(y float64) {
+		f := float32(y - box.minY)
+		if f < 0 || f == skip || f > StepHeight {
+			return
+		}
+		for _, h := range hs {
+			if h == f {
+				return
+			}
+		}
+		hs = append(hs, f)
+	}
+	for _, b := range blocks {
+		add(b.minY)
+		add(b.maxY)
+	}
+	// Insertion sort: there are only a handful.
+	for i := 1; i < len(hs); i++ {
+		for j := i; j > 0 && hs[j] < hs[j-1]; j-- {
+			hs[j], hs[j-1] = hs[j-1], hs[j]
+		}
+	}
+	return hs
+}
+
+// collideWithBoxes clips the movement (dx, dy, dz) of box against blocks:
+// Y first, then the larger horizontal axis, then the other one, so a
+// blocked axis does not cancel movement on the others (sliding along walls).
+func collideWithBoxes(blocks []aabb, box aabb, dx, dy, dz float64) (float64, float64, float64) {
+	dy = clipAxis(blocks, box, dy, 1)
+	box = box.offset(0, dy, 0)
+
+	if math.Abs(dx) >= math.Abs(dz) {
+		dx = clipAxis(blocks, box, dx, 0)
+		box = box.offset(dx, 0, 0)
+		dz = clipAxis(blocks, box, dz, 2)
+	} else {
+		dz = clipAxis(blocks, box, dz, 2)
+		box = box.offset(0, 0, dz)
+		dx = clipAxis(blocks, box, dx, 0)
+	}
+	return dx, dy, dz
+}
+
+// boxesIn appends the collision boxes that touch region.
+func boxesIn(w collider, dst []aabb, region aabb) []aabb {
+	x0, x1 := int(math.Floor(region.minX-collisionEpsilon)), int(math.Floor(region.maxX+collisionEpsilon))
+	// Fences and walls are 1.5 blocks tall: look one block lower.
+	y0, y1 := int(math.Floor(region.minY-collisionEpsilon))-1, int(math.Floor(region.maxY+collisionEpsilon))
+	z0, z1 := int(math.Floor(region.minZ-collisionEpsilon)), int(math.Floor(region.maxZ+collisionEpsilon))
+	for x := x0; x <= x1; x++ {
+		for y := y0; y <= y1; y++ {
+			for z := z0; z <= z1; z++ {
+				n := len(dst)
+				dst = w.appendBoxes(dst, x, y, z)
+				// Keep only the boxes that touch the region.
+				kept := dst[:n]
+				for _, b := range dst[n:] {
+					if b.touches(region) {
+						kept = append(kept, b)
+					}
+				}
+				dst = kept
+			}
+		}
+	}
+	return dst
+}
+
+// touches is intersects including shared faces.
+func (a aabb) touches(b aabb) bool {
+	const e = collisionEpsilon
+	return a.minX <= b.maxX+e && a.maxX >= b.minX-e &&
+		a.minY <= b.maxY+e && a.maxY >= b.minY-e &&
+		a.minZ <= b.maxZ+e && a.maxZ >= b.minZ-e
+}
+
+// isFree reports whether box touches no collision box and no water
+// (vanilla Entity.isFree).
+func isFree(w collider, box aabb) bool {
+	for _, b := range boxesIn(w, nil, box) {
+		if b.intersects(box) {
+			return false
+		}
+	}
+	for x := int(math.Floor(box.minX)); x < int(math.Ceil(box.maxX)); x++ {
+		for y := int(math.Floor(box.minY)); y < int(math.Ceil(box.maxY)); y++ {
+			for z := int(math.Floor(box.minZ)); z < int(math.Ceil(box.maxZ)); z++ {
+				if w.waterHeight(x, y, z) > 0 {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// waterState is vanilla Entity.updateFluidHeightAndDoFluidPushing for water
+// (without currents): whether the player box touches water, and how deep
+// the water is above the feet.
+func waterState(w collider, box aabb) (inWater bool, depth float64) {
+	box = box.deflate(0.001)
+	for x := int(math.Floor(box.minX)); x < int(math.Ceil(box.maxX)); x++ {
+		for y := int(math.Floor(box.minY)); y < int(math.Ceil(box.maxY)); y++ {
+			for z := int(math.Floor(box.minZ)); z < int(math.Ceil(box.maxZ)); z++ {
+				h := w.waterHeight(x, y, z)
+				if h <= 0 {
+					continue
+				}
+				top := float64(y) + h
+				if top >= box.minY {
+					inWater = true
+					depth = math.Max(depth, top-box.minY)
+				}
+			}
+		}
+	}
+	return inWater, depth
+}
+
+// onClimbable reports whether the block at the player's feet is a ladder,
+// vine or other climbable block.
+func onClimbable(w collider, b body) bool {
+	return w.climbable(int(math.Floor(b.X)), int(math.Floor(b.Y)), int(math.Floor(b.Z)))
+}
+
+func clamp(v, lo, hi float64) float64 {
+	return math.Max(lo, math.Min(hi, v))
 }
 
 // inputVector returns the horizontal input in world space, as vanilla builds
@@ -151,51 +488,6 @@ func inputVector(ctrl ControlState, yaw float32) (moveX, moveZ float64) {
 	moveX = strafe*cos - forward*sin
 	moveZ = forward*cos + strafe*sin
 	return moveX, moveZ
-}
-
-// moveWithCollisions clips the movement (dx, dy, dz) of box against solid
-// blocks and returns the allowed movement.
-//
-// Every block in the region swept by the move is considered, so a fast fall
-// stops at the first floor instead of tunneling through it. Y is resolved
-// first, then X and Z separately (larger first, like vanilla), so a blocked
-// axis does not cancel movement on the other one (sliding along walls).
-func moveWithCollisions(w collider, box aabb, dx, dy, dz float64) (float64, float64, float64) {
-	blocks := solidBlocksIn(w, box, dx, dy, dz)
-
-	dy = clipAxis(blocks, box, dy, 1)
-	box = box.offset(0, dy, 0)
-
-	if math.Abs(dx) >= math.Abs(dz) {
-		dx = clipAxis(blocks, box, dx, 0)
-		box = box.offset(dx, 0, 0)
-		dz = clipAxis(blocks, box, dz, 2)
-	} else {
-		dz = clipAxis(blocks, box, dz, 2)
-		box = box.offset(0, 0, dz)
-		dx = clipAxis(blocks, box, dx, 0)
-	}
-	return dx, dy, dz
-}
-
-// solidBlocksIn returns the unit boxes of solid blocks touching box expanded by the move.
-func solidBlocksIn(w collider, box aabb, dx, dy, dz float64) []aabb {
-	x0, x1 := math.Floor(math.Min(box.minX, box.minX+dx)), math.Floor(math.Max(box.maxX, box.maxX+dx))
-	y0, y1 := math.Floor(math.Min(box.minY, box.minY+dy)), math.Floor(math.Max(box.maxY, box.maxY+dy))
-	z0, z1 := math.Floor(math.Min(box.minZ, box.minZ+dz)), math.Floor(math.Max(box.maxZ, box.maxZ+dz))
-
-	var blocks []aabb
-	for x := int(x0); x <= int(x1); x++ {
-		for y := int(y0); y <= int(y1); y++ {
-			for z := int(z0); z <= int(z1); z++ {
-				if w.IsBlockSolidOrUnloaded(x, y, z) {
-					fx, fy, fz := float64(x), float64(y), float64(z)
-					blocks = append(blocks, aabb{fx, fy, fz, fx + 1, fy + 1, fz + 1})
-				}
-			}
-		}
-	}
-	return blocks
 }
 
 // clipAxis limits movement d of box along axis (0=X, 1=Y, 2=Z) so it stops at

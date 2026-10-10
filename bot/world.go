@@ -42,17 +42,20 @@ type World struct {
 	// classes is the version's block state classification table
 	// (Version.BlockClasses).
 	classes string
+	// shapes holds the collision boxes per block state (Version.BlockShapes).
+	shapes *blockShapes
 }
 
-func newWorld(classes string) *World {
+func newWorld(classes, shapes string) *World {
 	if classes == "" {
-		classes = v774.BlockClasses
+		classes, shapes = v774.BlockClasses, v774.BlockShapes
 	}
 	return &World{
 		chunks:  make(map[chunkPos]*ChunkColumn),
 		MinY:    -64,
 		Height:  384,
 		classes: classes,
+		shapes:  shapesFor(shapes),
 	}
 }
 
@@ -243,6 +246,8 @@ func (w *World) IsSafeToFall(x, startY, z, maxDrop int) int {
 
 // WorldView provides read-only access to the world for the pathfinder.
 type WorldView interface {
+	StandHeight(x, y, z int) (float64, bool)
+	ColumnFree(x, z int, y0, y1 float64) bool
 	GetBlock(x, y, z int) uint32
 	HasChunk(x, z int) bool
 	IsBlockSolid(x, y, z int) bool

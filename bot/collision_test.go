@@ -5,16 +5,61 @@ import (
 	"testing"
 )
 
-// fakeWorld is a set of solid blocks; everything else is air.
-type fakeWorld map[[3]int]bool
+// fakeWorld maps block positions to blocks; everything else is air.
+type fakeWorld map[[3]int]fakeBlock
 
-func (w fakeWorld) IsBlockSolidOrUnloaded(x, y, z int) bool { return w[[3]int{x, y, z}] }
+type fakeBlock struct {
+	boxes []aabb // local collision boxes
+	water bool
+	climb bool
+}
+
+var (
+	solid      = fakeBlock{boxes: fullCube}
+	water      = fakeBlock{water: true}
+	bottomSlab = fakeBlock{boxes: []aabb{{0, 0, 0, 1, 0.5, 1}}}
+	fence      = fakeBlock{boxes: []aabb{{0.375, 0, 0.375, 0.625, 1.5, 0.625}}}
+)
+
+// ladder returns a ladder attached to the wall on the +X side of its block.
+func ladderPlusX() fakeBlock {
+	return fakeBlock{boxes: []aabb{{0.8125, 0, 0, 1, 1, 1}}, climb: true}
+}
+
+// stairs returns bottom stairs ascending toward +X (low step on the -X half).
+func stairsPlusX() fakeBlock {
+	return fakeBlock{boxes: []aabb{{0, 0, 0, 1, 0.5, 1}, {0.5, 0.5, 0, 1, 1, 1}}}
+}
+
+func (w fakeWorld) appendBoxes(dst []aabb, x, y, z int) []aabb {
+	for _, b := range w[[3]int{x, y, z}].boxes {
+		dst = append(dst, b.offset(float64(x), float64(y), float64(z)))
+	}
+	return dst
+}
+
+func (w fakeWorld) waterHeight(x, y, z int) float64 {
+	if !w[[3]int{x, y, z}].water {
+		return 0
+	}
+	if w[[3]int{x, y + 1, z}].water {
+		return 1
+	}
+	return sourceWaterHeight
+}
+
+func (w fakeWorld) climbable(x, y, z int) bool { return w[[3]int{x, y, z}].climb }
+
+func (w fakeWorld) set(x, y, z int, b fakeBlock) fakeWorld {
+	w[[3]int{x, y, z}] = b
+	return w
+}
 
 // floor makes a solid layer at y over [x0,x1]x[z0,z1].
 func (w fakeWorld) floor(y, x0, x1, z0, z1 int) fakeWorld {
 	for x := x0; x <= x1; x++ {
 		for z := z0; z <= z1; z++ {
-			w[[3]int{x, y, z}] = true
+			w[[3]int{x, y, z}] = solid
 		}
 	}
 	return w
@@ -56,8 +101,8 @@ func TestPhysicsWallSlide(t *testing.T) {
 	w := fakeWorld{}.floor(63, -20, 20, -20, 20)
 	// Wall at x=2, two blocks high, along the whole floor.
 	for z := -20; z <= 20; z++ {
-		w[[3]int{2, 64, z}] = true
-		w[[3]int{2, 65, z}] = true
+		w[[3]int{2, 64, z}] = solid
+		w[[3]int{2, 65, z}] = solid
 	}
 	// Facing +X+Z diagonally (yaw -45) into the wall.
 	b := run(w, body{X: 1.5, Y: 64, Z: 0.5, OnGround: true}, ControlState{Forward: true}, -45, 40)
